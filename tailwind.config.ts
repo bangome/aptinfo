@@ -5,9 +5,23 @@ const config = {
   content: ['./src/**/*.{ts,tsx}'],
   prefix: '',
   theme: {
+    screens: {
+      'xs': '475px',
+      'sm': '640px',
+      'md': '768px',
+      'lg': '1024px',
+      'xl': '1280px',
+      '2xl': '1536px',
+    },
     container: {
       center: true,
-      padding: '2rem',
+      padding: {
+        DEFAULT: '1rem',
+        sm: '2rem',
+        lg: '4rem',
+        xl: '5rem',
+        '2xl': '6rem',
+      },
       screens: {
         '2xl': '1400px',
       },
@@ -47,6 +61,21 @@ const config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+      },
+      fontFamily: {
+        sans: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+      },
+      fontSize: {
+        'h1': ['2.25rem', { lineHeight: '2.5rem', letterSpacing: '-0.025em' }],
+        'h2': ['1.875rem', { lineHeight: '2.25rem', letterSpacing: '-0.025em' }],
+        'h3': ['1.5rem', { lineHeight: '2rem', letterSpacing: '-0.025em' }],
+        'h4': ['1.25rem', { lineHeight: '1.75rem', letterSpacing: '-0.025em' }],
+        'h5': ['1.125rem', { lineHeight: '1.75rem', letterSpacing: '0' }],
+        'h6': ['1rem', { lineHeight: '1.5rem', letterSpacing: '0' }],
+        'body1': ['1rem', { lineHeight: '1.75rem', letterSpacing: '0' }],
+        'body2': ['0.875rem', { lineHeight: '1.25rem', letterSpacing: '0' }],
+        'caption': ['0.75rem', { lineHeight: '1rem', letterSpacing: '0.025em' }],
+        'overline': ['0.75rem', { lineHeight: '1rem', letterSpacing: '0.1em' }],
       },
       borderRadius: {
         lg: 'var(--radius)',

@@ -1,0 +1,571 @@
+import Link from 'next/link';
+import { Button } from '@/components/ui/button-enhanced';
+import { ArrowLeft } from 'lucide-react';
+
+<div className="container px-4 py-6 sm:py-8">
+  <div className="max-w-4xl mx-auto">
+    <div className="mb-6">
+      <Link href="/style-guide">
+        <Button variant="ghost" className="gap-2 p-0 h-auto">
+          <ArrowLeft className="h-4 w-4" />
+          스타일 가이드로 돌아가기
+        </Button>
+      </Link>
+    </div>
+
+# 반응형 디자인 가이드라인
+
+아파트인포는 모든 디바이스에서 최적의 사용자 경험을 제공하기 위해 모바일 퍼스트 접근법을 사용합니다.
+
+## 브레이크포인트
+
+### Tailwind CSS 브레이크포인트
+
+```css
+/* Mobile First Breakpoints */
+sm: 640px   /* 작은 태블릿 */
+md: 768px   /* 태블릿 */
+lg: 1024px  /* 데스크톱 */
+xl: 1280px  /* 큰 데스크톱 */
+2xl: 1536px /* 매우 큰 화면 */
+```
+
+### 디바이스별 최적화
+
+- **모바일** (320px - 639px): 기본 스타일
+- **태블릿** (640px - 1023px): 2열 레이아웃, 더 큰 터치 타겟
+- **데스크톱** (1024px+): 3열 이상 레이아웃, 호버 효과
+
+## 레이아웃 패턴
+
+### 컨테이너 패턴
+
+```tsx
+// 기본 컨테이너 - 실제 코드에서 사용됨
+<div className="container px-4 py-6 sm:py-8">
+  {/* 콘텐츠 */}
+</div>
+
+// 최대 너비 제한
+<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+  {/* 콘텐츠 */}
+</div>
+```
+
+### 그리드 시스템
+
+#### 반응형 그리드 (실제 사용 예제)
+
+```tsx
+// 아파트 정보 그리드 (apartment detail page에서 사용)
+<div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 text-center">
+  <div className="space-y-1">
+    <Calendar className="h-5 w-5 mx-auto text-primary" />
+    <div className="text-xs sm:text-body2 text-muted-foreground">건축년도</div>
+    <div className="font-semibold text-sm sm:text-base">{buildYear}년</div>
+  </div>
+  {/* 추가 아이템들... */}
+</div>
+
+// 아파트 목록 그리드
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+  {apartments.map(apartment => (
+    <ApartmentCard key={apartment.id} apartment={apartment} />
+  ))}
+</div>
+```
+
+#### Auto-fit 그리드
+
+```tsx
+// 유연한 카드 그리드
+<div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-6">
+  {items.map(item => (
+    <Card key={item.id}>{/* 카드 내용 */}</Card>
+  ))}
+</div>
+```
+
+### 플렉스박스 패턴
+
+#### 헤더 레이아웃
+
+```tsx
+// 모바일 우선 헤더 (실제 코드 패턴)
+<div className="flex flex-col lg:flex-row gap-3 lg:gap-4">
+  <div className="flex-1">
+    <SearchBar />
+  </div>
+  <div className="flex items-center gap-2 justify-between sm:justify-end">
+    <SortSelect />
+    <ViewModeToggle />
+  </div>
+</div>
+```
+
+#### 카드 내부 레이아웃
+
+```tsx
+// 카드 헤더 (실제 사용 패턴)
+<CardTitle className="flex items-center justify-between">
+  <span>{title}</span>
+  <div className="flex gap-2">
+    <Button variant="bookmark" size="icon">
+      <Heart className="h-4 w-4" />
+    </Button>
+    <Button variant="outline" size="icon">
+      <Share className="h-4 w-4" />
+    </Button>
+  </div>
+</CardTitle>
+```
+
+### 사이드바 레이아웃
+
+```tsx
+// 반응형 사이드바 레이아웃 (search page에서 사용)
+<div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+  {/* 데스크톱 사이드바 */}
+  <aside className="hidden lg:block w-80 flex-shrink-0">
+    <Card>
+      <CardContent className="p-4 lg:p-6">
+        <FilterPanel />
+      </CardContent>
+    </Card>
+  </aside>
+
+  {/* 메인 콘텐츠 */}
+  <section className="flex-1 min-w-0" aria-label="검색 결과">
+    <ResultsList />
+  </section>
+</div>
+
+{/* 모바일 필터 (Sheet 사용) */}
+<Sheet>
+  <SheetTrigger asChild>
+    <Button variant="filter" size="sm" className="lg:hidden">
+      필터
+    </Button>
+  </SheetTrigger>
+  <SheetContent side="left" className="w-80">
+    <FilterPanel />
+  </SheetContent>
+</Sheet>
+```
+
+## 타이포그래피
+
+### 반응형 텍스트 크기
+
+```tsx
+// 제목 크기 조정
+<h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold">
+  메인 제목
+</h1>
+
+// 본문 텍스트 조정
+<p className="text-sm sm:text-body2">
+  본문 내용
+</p>
+
+// 브레드크럼 텍스트 (실제 사용)
+<ol className="flex items-center gap-2 text-sm sm:text-body2 text-muted-foreground">
+  {/* 브레드크럼 아이템들 */}
+</ol>
+```
+
+### 줄 간격 및 여백
+
+```tsx
+// 반응형 여백
+<div className="space-y-4 sm:space-y-6">
+  {/* 콘텐츠 */}
+</div>
+
+// 반응형 패딩
+<div className="p-4 sm:p-6 lg:p-8">
+  {/* 콘텐츠 */}
+</div>
+
+// 실제 사용 예제 (apartment detail page)
+<div className="lg:col-span-2 space-y-4 sm:space-y-6">
+  {/* 아파트 상세 정보 */}
+</div>
+```
+
+## 이미지와 미디어
+
+### 반응형 이미지
+
+```tsx
+// 반응형 이미지 갤러리 (실제 사용 패턴)
+<div className="relative h-64 sm:h-80 lg:h-96 overflow-hidden rounded-lg">
+  <Image
+    src={imageSrc}
+    alt={imageAlt}
+    fill
+    className="object-cover"
+    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+  />
+</div>
+
+// 아바타/프로필 이미지
+<div className="h-10 w-10 sm:h-12 sm:w-12">
+  <Image
+    src="/avatar.jpg"
+    alt="사용자 프로필"
+    width={48}
+    height={48}
+    className="rounded-full"
+  />
+</div>
+```
+
+### 비디오 반응형
+
+```tsx
+// 반응형 비디오 컨테이너
+<div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+  <video
+    className="absolute inset-0 w-full h-full object-cover"
+    controls
+  >
+    <source src="/apartment-tour.mp4" type="video/mp4" />
+  </video>
+</div>
+```
+
+## 내비게이션
+
+### 모바일 메뉴
+
+```tsx
+// 햄버거 메뉴 패턴
+function MobileMenu() {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <>
+      {/* 모바일 메뉴 버튼 */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="md:hidden"
+        onClick={() => setIsOpen(true)}
+        aria-label="메뉴 열기"
+      >
+        <Menu className="h-6 w-6" />
+      </Button>
+
+      {/* 모바일 메뉴 */}
+      <Sheet open={isOpen} onOpenChange={setIsOpen}>
+        <SheetContent side="left">
+          <nav className="space-y-4">
+            <Link href="/" className="block py-2">홈</Link>
+            <Link href="/search" className="block py-2">검색</Link>
+            <Link href="/about" className="block py-2">소개</Link>
+          </nav>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+```
+
+### 탭 내비게이션
+
+```tsx
+// 반응형 탭
+function ResponsiveTabs({ tabs, activeTab, onTabChange }) {
+  return (
+    <div className="border-b">
+      {/* 데스크톱: 가로 탭 */}
+      <nav className="hidden sm:flex space-x-8" aria-label="탭">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            className={cn(
+              "py-2 px-1 border-b-2 font-medium text-sm focus-outline",
+              activeTab === tab.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => onTabChange(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* 모바일: 드롭다운 */}
+      <div className="sm:hidden">
+        <Select value={activeTab} onValueChange={onTabChange}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {tabs.map(tab => (
+              <SelectItem key={tab.id} value={tab.id}>
+                {tab.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+```
+
+## 폼 요소
+
+### 반응형 폼 레이아웃
+
+```tsx
+// 반응형 폼 그리드
+<form className="space-y-6">
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div>
+      <label htmlFor="name" className="block text-sm font-medium mb-2">
+        이름
+      </label>
+      <Input id="name" placeholder="이름을 입력하세요" />
+    </div>
+    <div>
+      <label htmlFor="email" className="block text-sm font-medium mb-2">
+        이메일
+      </label>
+      <Input id="email" type="email" placeholder="이메일을 입력하세요" />
+    </div>
+  </div>
+
+  <div>
+    <label htmlFor="message" className="block text-sm font-medium mb-2">
+      메시지
+    </label>
+    <textarea
+      id="message"
+      rows={4}
+      className="w-full p-3 border rounded-lg resize-none"
+      placeholder="메시지를 입력하세요"
+    />
+  </div>
+
+  <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+    <Button variant="outline" className="w-full sm:w-auto">
+      취소
+    </Button>
+    <Button type="submit" className="w-full sm:w-auto">
+      전송
+    </Button>
+  </div>
+</form>
+```
+
+### 검색 바
+
+```tsx
+// 반응형 검색 바 (실제 사용 패턴)
+<div className="flex flex-col lg:flex-row gap-3 lg:gap-4">
+  <div className="flex-1">
+    <SearchBar
+      placeholder="아파트명 또는 지역을 검색하세요"
+      className="w-full"
+    />
+  </div>
+  <div className="flex items-center gap-2 justify-between sm:justify-end">
+    {/* 정렬 및 뷰 모드 컨트롤 */}
+  </div>
+</div>
+```
+
+## 테이블
+
+### 반응형 테이블
+
+```tsx
+// 스크롤 가능한 테이블
+<div className="overflow-x-auto">
+  <table className="w-full min-w-[600px]">
+    <thead>
+      <tr className="border-b">
+        <th className="text-left p-4">아파트명</th>
+        <th className="text-left p-4 hidden sm:table-cell">위치</th>
+        <th className="text-right p-4">가격</th>
+        <th className="text-right p-4 hidden md:table-cell">면적</th>
+      </tr>
+    </thead>
+    <tbody>
+      {data.map(item => (
+        <tr key={item.id} className="border-b hover:bg-muted/50">
+          <td className="p-4 font-medium">{item.name}</td>
+          <td className="p-4 hidden sm:table-cell text-muted-foreground">
+            {item.location}
+          </td>
+          <td className="p-4 text-right">{item.price}</td>
+          <td className="p-4 text-right hidden md:table-cell">
+            {item.area}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+// 모바일용 카드 뷰
+<div className="sm:hidden space-y-4">
+  {data.map(item => (
+    <Card key={item.id}>
+      <CardContent className="p-4">
+        <h3 className="font-medium mb-2">{item.name}</h3>
+        <div className="space-y-1 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">위치</span>
+            <span>{item.location}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">가격</span>
+            <span className="font-medium">{item.price}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">면적</span>
+            <span>{item.area}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  ))}
+</div>
+```
+
+## 버튼과 액션
+
+### 반응형 버튼 그룹
+
+```tsx
+// 실제 사용 패턴 (apartment detail page)
+<div className="flex flex-col sm:flex-row gap-3">
+  <Button variant="compare" className="w-full sm:w-auto">
+    비교함에 추가
+  </Button>
+  <Button variant="bookmark" className="w-full sm:w-auto">
+    관심목록에 추가
+  </Button>
+  <Button variant="outline" className="w-full sm:w-auto">
+    공유하기
+  </Button>
+</div>
+
+// 플로팅 액션 버튼 (모바일)
+<Button
+  className="fixed bottom-4 right-4 z-50 h-14 w-14 rounded-full shadow-lg sm:hidden"
+  size="icon"
+>
+  <Plus className="h-6 w-6" />
+</Button>
+```
+
+## 성능 최적화
+
+### 이미지 최적화
+
+```tsx
+// Next.js Image 컴포넌트 최적화
+<Image
+  src="/apartment.jpg"
+  alt="아파트 외관"
+  width={400}
+  height={300}
+  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+  priority={isAboveFold}
+  placeholder="blur"
+  blurDataURL="data:image/jpeg;base64,..."
+/>
+```
+
+### 지연 로딩
+
+```tsx
+// 무한 스크롤이나 페이지네이션
+function InfiniteScroll({ items, loadMore, hasMore }) {
+  const [ref, inView] = useInView({
+    threshold: 0,
+    triggerOnce: true,
+  });
+
+  useEffect(() => {
+    if (inView && hasMore) {
+      loadMore();
+    }
+  }, [inView, hasMore, loadMore]);
+
+  return (
+    <div>
+      {items.map(item => (
+        <ItemCard key={item.id} item={item} />
+      ))}
+      {hasMore && <div ref={ref}>Loading...</div>}
+    </div>
+  );
+}
+```
+
+## 테스트
+
+### 반응형 테스트
+
+```tsx
+// 브레이크포인트 테스트
+describe('Responsive Layout', () => {
+  test('mobile layout', () => {
+    render(<Component />, { wrapper: ({ children }) =>
+      <div style={{ width: '375px' }}>{children}</div>
+    });
+    // 모바일 레이아웃 검증
+  });
+
+  test('desktop layout', () => {
+    render(<Component />, { wrapper: ({ children }) =>
+      <div style={{ width: '1024px' }}>{children}</div>
+    });
+    // 데스크톱 레이아웃 검증
+  });
+});
+```
+
+### 접근성 테스트
+
+```tsx
+// 터치 타겟 크기 테스트
+test('touch targets are large enough', () => {
+  render(<MobileComponent />);
+  const buttons = screen.getAllByRole('button');
+
+  buttons.forEach(button => {
+    const rect = button.getBoundingClientRect();
+    expect(rect.width).toBeGreaterThanOrEqual(44);
+    expect(rect.height).toBeGreaterThanOrEqual(44);
+  });
+});
+```
+
+## 베스트 프랙티스
+
+### Do's
+
+1. **모바일 퍼스트**: 작은 화면부터 디자인
+2. **유연한 그리드**: 고정 크기보다는 비율 사용
+3. **적절한 터치 타겟**: 최소 44px 크기 유지
+4. **읽기 쉬운 텍스트**: 충분한 대비와 크기
+5. **성능 고려**: 이미지 최적화와 지연 로딩
+
+### Don'ts
+
+1. **가로 스크롤 금지**: 모든 콘텐츠가 화면에 맞아야 함
+2. **과도한 줌**: 사용자가 확대하지 않고도 읽을 수 있어야 함
+3. **호버 의존**: 터치 디바이스에서는 호버가 없음
+4. **고정 크기**: 다양한 화면 크기를 고려
+5. **복잡한 레이아웃**: 모바일에서는 단순하게
+
+  </div>
+</div>

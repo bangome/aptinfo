@@ -32,6 +32,27 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Security and secrets
+*.pem
+*.key
+*.p12
+*.pfx
+*secret*
+*password*
+*token*
+*credential*
+
+# API keys and sensitive data
+config/secrets.json
+secrets/
+.secrets/
+
+# Cypress
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
 
 # vercel
 .vercel

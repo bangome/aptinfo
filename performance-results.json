@@ -1,0 +1,84 @@
+{
+  "timestamp": "2025-09-17T07:27:30.224Z",
+  "summary": {
+    "allMeet3SecTarget": true,
+    "allPerformWellUnderLoad": true,
+    "totalScenarios": 4,
+    "passedScenarios": 4
+  },
+  "benchmarkResults": [
+    {
+      "scenario": "아파트 단지 목록 조회",
+      "iterations": 5,
+      "successRate": 100,
+      "avgResponseTime": 356,
+      "minResponseTime": 251,
+      "maxResponseTime": 750,
+      "avgDataSize": 59,
+      "avgRecordCount": 0,
+      "meets3SecTarget": true
+    },
+    {
+      "scenario": "아파트 ID 조회",
+      "iterations": 5,
+      "successRate": 100,
+      "avgResponseTime": 345,
+      "minResponseTime": 211,
+      "maxResponseTime": 625,
+      "avgDataSize": 1029,
+      "avgRecordCount": 0,
+      "meets3SecTarget": true
+    },
+    {
+      "scenario": "정부 API 호출 테스트",
+      "iterations": 5,
+      "successRate": 100,
+      "avgResponseTime": 242,
+      "minResponseTime": 198,
+      "maxResponseTime": 291,
+      "avgDataSize": 314,
+      "avgRecordCount": 1,
+      "meets3SecTarget": true
+    },
+    {
+      "scenario": "모든 API 통합 테스트",
+      "iterations": 5,
+      "successRate": 100,
+      "avgResponseTime": 556,
+      "minResponseTime": 452,
+      "maxResponseTime": 944,
+      "avgDataSize": 608,
+      "avgRecordCount": 0,
+      "meets3SecTarget": true
+    }
+  ],
+  "concurrencyResults": [
+    {
+      "scenario": "아파트 단지 목록 조회",
+      "concurrentUsers": 3,
+      "totalTime": 607,
+      "avgResponseTime": 538,
+      "maxResponseTime": 606,
+      "successRate": 100,
+      "performsWellUnderLoad": true
+    },
+    {
+      "scenario": "아파트 ID 조회",
+      "concurrentUsers": 3,
+      "totalTime": 528,
+      "avgResponseTime": 462,
+      "maxResponseTime": 527,
+      "successRate": 100,
+      "performsWellUnderLoad": true
+    },
+    {
+      "scenario": "정부 API 호출 테스트",
+      "concurrentUsers": 3,
+      "totalTime": 529,
+      "avgResponseTime": 461,
+      "maxResponseTime": 528,
+      "successRate": 100,
+      "performsWellUnderLoad": true
+    }
+  ]
+}

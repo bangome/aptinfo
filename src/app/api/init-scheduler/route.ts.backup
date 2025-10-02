@@ -1,0 +1,65 @@
+/**
+ * 스케줄러 초기화 API 엔드포인트
+ * 서버 시작 시 또는 수동으로 스케줄러를 초기화
+ */
+
+import { NextResponse } from 'next/server';
+import { initializeAppScheduler, getSchedulerStatus } from '@/lib/scheduler-init';
+import { normalizeError, logError } from '@/lib/error-handling';
+
+/**
+ * 스케줄러 초기화 상태 확인
+ */
+export async function GET() {
+  try {
+    const status = getSchedulerStatus();
+    
+    return NextResponse.json({
+      success: true,
+      data: status,
+      message: '스케줄러 상태를 조회했습니다',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    logError(normalizedError, { endpoint: '/api/init-scheduler', method: 'GET' });
+    
+    return NextResponse.json({
+      success: false,
+      error: normalizedError.userMessage,
+      code: normalizedError.code
+    }, { status: 500 });
+  }
+}
+
+/**
+ * 스케줄러 수동 초기화
+ */
+export async function POST() {
+  try {
+    console.log('🔄 스케줄러 수동 초기화 요청 받음');
+    
+    await initializeAppScheduler();
+    
+    const status = getSchedulerStatus();
+    
+    return NextResponse.json({
+      success: true,
+      data: status,
+      message: '스케줄러가 성공적으로 초기화되었습니다',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    logError(normalizedError, { endpoint: '/api/init-scheduler', method: 'POST' });
+    
+    return NextResponse.json({
+      success: false,
+      error: normalizedError.userMessage,
+      code: normalizedError.code,
+      message: '스케줄러 초기화에 실패했습니다'
+    }, { status: 500 });
+  }
+}

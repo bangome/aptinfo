@@ -1,0 +1,128 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getCronScheduler } from '@/services/cronScheduler';
+import { normalizeError, logError } from '@/lib/error-handling';
+
+export async function GET(request: NextRequest) {
+  try {
+    console.log('📊 스케줄러 상태 조회 요청');
+    
+    const scheduler = getCronScheduler();
+    const statusReport = scheduler.getStatusReport();
+    
+    console.log(`✅ 스케줄러 상태 조회 완료: ${statusReport.totalJobs}개 작업 중 ${statusReport.runningJobs}개 실행 중`);
+    
+    return NextResponse.json({
+      success: true,
+      data: statusReport,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    const errorDetails = normalizeError(error);
+    logError(errorDetails, { context: 'scheduler-status-api' });
+    
+    console.error('❌ 스케줄러 상태 조회 실패:', error);
+    
+    return NextResponse.json({
+      success: false,
+      error: errorDetails.userMessage,
+      details: errorDetails.technicalMessage
+    }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { action, jobId } = body;
+
+    if (!action) {
+      return NextResponse.json({
+        success: false,
+        error: 'action 파라미터가 필요합니다.',
+        validActions: ['start', 'stop', 'restart', 'run']
+      }, { status: 400 });
+    }
+
+    console.log(`🎯 스케줄러 제어 요청: ${action}${jobId ? ` (작업: ${jobId})` : ''}`);
+    
+    const scheduler = getCronScheduler();
+    let result;
+
+    switch (action) {
+      case 'start':
+        scheduler.startAllJobs();
+        result = { message: '모든 스케줄 작업이 시작되었습니다.' };
+        break;
+
+      case 'stop':
+        scheduler.stopAllJobs();
+        result = { message: '모든 스케줄 작업이 중지되었습니다.' };
+        break;
+
+      case 'restart':
+        scheduler.stopAllJobs();
+        // 잠시 대기 후 재시작
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        scheduler.startAllJobs();
+        result = { message: '모든 스케줄 작업이 재시작되었습니다.' };
+        break;
+
+      case 'run':
+        if (!jobId) {
+          return NextResponse.json({
+            success: false,
+            error: 'run 액션을 위해서는 jobId 파라미터가 필요합니다.'
+          }, { status: 400 });
+        }
+
+        // 작업 존재 여부 확인
+        const job = scheduler.getJob(jobId);
+        if (!job) {
+          return NextResponse.json({
+            success: false,
+            error: `작업 '${jobId}'를 찾을 수 없습니다.`,
+            availableJobs: scheduler.getJobs().map(j => ({ id: j.id, name: j.name }))
+          }, { status: 400 });
+        }
+
+        // 작업 수동 실행
+        await scheduler.runJobNow(jobId);
+        result = { 
+          message: `작업 '${job.name}'이 실행되었습니다.`,
+          jobId,
+          jobName: job.name
+        };
+        break;
+
+      default:
+        return NextResponse.json({
+          success: false,
+          error: `알 수 없는 액션: ${action}`,
+          validActions: ['start', 'stop', 'restart', 'run']
+        }, { status: 400 });
+    }
+
+    console.log(`✅ 스케줄러 제어 완료: ${action}`);
+    
+    return NextResponse.json({
+      success: true,
+      action,
+      jobId: jobId || null,
+      data: result,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    const errorDetails = normalizeError(error);
+    logError(errorDetails, { context: 'scheduler-control-api' });
+    
+    console.error('❌ 스케줄러 제어 실패:', error);
+    
+    return NextResponse.json({
+      success: false,
+      error: errorDetails.userMessage,
+      details: errorDetails.technicalMessage
+    }, { status: 500 });
+  }
+}

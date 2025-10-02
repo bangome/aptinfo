@@ -1,0 +1,305 @@
+#1. 단지기본정보제공서비스 base URL : https://apis.data.go.kr/1613000/AptBasisInfoServiceV4
+## 1-1. GET /getAphusDtilInfoV4
+	ServiceKey *
+	string
+	(query)
+	공공데이터포털에서 받은 인증키
+
+	kaptCode *
+	string
+	(query)
+	단지코드
+
+Responses
+{
+  "header": {
+    "resultCode": "string",
+    "resultMsg": "string"
+  },
+  "body": {
+    "item": {
+      "undergroundElChargerCnt": 0,
+      "kaptCode": "string",
+      "kaptName": "string",
+      "codeMgr": "string",
+      "kaptMgrCnt": 0,
+      "kaptCcompany": "string",
+      "codeSec": "string",
+      "kaptdScnt": 0,
+      "kaptdSecCom": "string",
+      "codeClean": "string",
+      "kaptdClcnt": 0,
+      "codeGarbage": "string",
+      "codeDisinf": "string",
+      "kaptdDcnt": 0,
+      "disposalType": "string",
+      "codeStr": "string",
+      "kaptdEcapa": 0,
+      "codeEcon": "string",
+      "codeEmgr": "string",
+      "codeFalarm": "string",
+      "codeWsupply": "string",
+      "codeElev": "string",
+      "kaptdEcnt": 0,
+      "kaptdPcnt": 0,
+      "kaptdPcntu": 0,
+      "codeNet": "string",
+      "kaptdCccnt": 0,
+      "welfareFacility": "string",
+      "kaptdWtimebus": "string",
+      "subwayLine": "string",
+      "subwayStation": "string",
+      "kaptdWtimesub": "string",
+      "convenientFacility": "string",
+      "educationFacility": "string",
+      "groundElChargerCnt": 0,
+      "useYn": "string"
+    }
+  }
+}
+
+##1-2. GET /getAphusBassInfoV4
+	ServiceKey *
+	string
+	(query)
+	공공데이터포털에서 발급받은 인증키
+
+	kaptCode *
+	string
+	(query)
+	단지코드
+
+{
+  "header": {
+    "resultCode": "string",
+    "resultMsg": "string"
+  },
+  "body": {
+    "item": {
+      "zipcode": "string",
+      "kaptCode": "string",
+      "kaptName": "string",
+      "kaptAddr": "string",
+      "codeSaleNm": "string",
+      "codeHeatNm": "string",
+      "kaptTarea": 0,
+      "kaptDongCnt": 0,
+      "kaptdaCnt": "string",
+      "kaptBcompany": "string",
+      "kaptAcompany": "string",
+      "kaptTel": "string",
+      "kaptFax": "string",
+      "kaptUrl": "string",
+      "codeAptNm": "string",
+      "doroJuso": "string",
+      "hoCnt": 0,
+      "codeMgrNm": "string",
+      "codeHallNm": "string",
+      "kaptUsedate": "string",
+      "kaptMarea": 0,
+      "kaptMparea60": 0,
+      "kaptMparea85": 0,
+      "kaptMparea135": 0,
+      "kaptMparea136": 0,
+      "privArea": 0,
+      "bjdCode": "string",
+      "kaptTopFloor": 0,
+      "ktownFlrNo": 0,
+      "kaptBaseFloor": 0,
+      "kaptdEcntp": 0
+    }
+  }
+}
+
+
+#2. 단지목록제공서비스 base URL : https://apis.data.go.kr/1613000/AptListService3
+##2-1. GET /getSidoAptList3 시도 아파트 목록
+	serviceKey *
+	string
+	(query)
+	공공데이터포털에서 받은 인증키
+
+	sidoCode *
+	string
+	(query)
+	시도코드
+
+	pageNo
+	string
+	(query)
+	페이지번호
+
+	numOfRows
+	string
+	(query)
+	목록 건수
+
+Responses
+{
+  "header": {
+    "resultCode": "string",
+    "resultMsg": "string"
+  },
+  "body": {
+    "items": [
+      {
+        "kaptCode": "string",
+        "kaptName": "string",
+        "as1": "string",
+        "as2": "string",
+        "as3": "string",
+        "as4": "string",
+        "bjdCode": "string"
+      }
+    ],
+    "numOfRows": "string",
+    "pageNo": "string",
+    "totalCount": "string"
+  }
+}
+
+##2-2. GET /getSigunguAptList3 시군구 아파트 목록
+	serviceKey *
+	string
+	(query)
+	공공데이터포털에서 받은 인증키
+
+	sigunguCode *
+	string
+	(query)
+	시군구코드
+
+	pageNo
+	string
+	(query)
+	페이지번호
+
+	numOfRows
+	string
+	(query)
+	한 페이지 결과 수
+	
+Responses
+{
+  "header": {
+    "resultCode": "string",
+    "resultMsg": "string"
+  },
+  "body": {
+    "items": [
+      {
+        "kaptCode": "string",
+        "kaptName": "string",
+        "as1": "string",
+        "as2": "string",
+        "as3": "string",
+        "as4": "string",
+        "bjdCode": "string"
+      }
+    ],
+    "numOfRows": "string",
+    "pageNo": "string",
+    "totalCount": "string"
+  }
+}
+##2-3. GET /getTotalAptList3 전체 아파트 목록
+	serviceKey *
+	string
+	(query)
+	공공데이터포털에서 받은 인증키
+
+	pageNo
+	string
+	(query)
+	페이지번호
+
+	numOfRows
+	string
+	(query)
+	목록 건수
+
+Responses
+{
+  "header": {
+    "resultCode": "string",
+    "resultMsg": "string"
+  },
+  "body": {
+    "items": [
+      {
+        "kaptCode": "string",
+        "kaptName": "string",
+        "as1": "string",
+        "as2": "string",
+        "as3": "string",
+        "as4": "string",
+        "bjdCode": "string"
+      }
+    ],
+    "numOfRows": "string",
+    "pageNo": "string",
+    "totalCount": "string"
+  }
+}
+
+## 2-4. /getLegaldongAptList3 법정동 아파트 목록
+serviceKey *
+string
+(query)
+공공데이터포털에서 받은 인증키
+
+pageNo
+string
+(query)
+페이지번호
+
+numOfRows
+string
+(query)
+한 페이지 결과 수
+
+bjdCode *
+string
+(query)
+시군구코드+법정동코드
+
+## GET /getRoadnameAptList3 도로명 아파트 목록
+	serviceKey *
+	string
+	(query)
+	공공데이터포털에서 발급받은 인증키
+
+	roadCode *
+	string
+	(query)
+	시군구번호+도로명번호
+
+	pageNo
+	string
+	(query)
+	페이지 번호
+
+	numOfRows
+	string
+	(query)
+	목록 건수
+
+response
+{
+  "header": {
+    "resultCode": "string",
+    "resultMsg": "string"
+  },
+  "body": {
+    "items": [
+      {
+        "kaptCode": "string",
+        "kaptName": "string",
+        "doroJuso": "string"
+      }
+    ],
+    "numOfRows": "string",
+    "pageNo": "string",
+    "totalCount": "string"
+  }
+}
