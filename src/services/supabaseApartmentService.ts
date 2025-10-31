@@ -475,41 +475,50 @@ class SupabaseApartmentService {
     try {
       console.log('SupabaseApartmentService.search 호출됨:', { query, filters });
 
-      // 기본 쿼리 빌더 - apartments 테이블 사용 (3,300개 단지)
+      // 기본 쿼리 빌더 - apartment_complexes 테이블 사용
       let queryBuilder = this.supabase
-        .from('apartments')
-        .select('*', { count: 'exact' })
-;
+        .from('apartment_complexes')
+        .select('*', { count: 'exact' });
 
       // 검색어 필터링
       if (query.trim()) {
         queryBuilder = queryBuilder.or(`name.ilike.%${query}%,sigungu.ilike.%${query}%,eupmyeondong.ilike.%${query}%`);
       }
 
-      // 지역 필터링
+      // 지역 필터링 (레거시 region 필드)
       if (filters.region) {
         queryBuilder = queryBuilder.eq('sigungu', filters.region);
+      }
+
+      // 시도 필터링 (새로운 방식)
+      if (filters.sido) {
+        queryBuilder = queryBuilder.eq('sido', filters.sido);
+      }
+
+      // 시군구 필터링 (새로운 방식)
+      if (filters.sigungu) {
+        queryBuilder = queryBuilder.eq('sigungu', filters.sigungu);
       }
 
       // 건축년도 필터링
       if (filters.buildYearRange) {
         const [minYear, maxYear] = filters.buildYearRange;
         queryBuilder = queryBuilder
-          .gte('use_approval_date', `${minYear}0101`)
-          .lte('use_approval_date', `${maxYear}1231`);
+          .gte('kapt_usedate', `${minYear}-01-01`)
+          .lte('kapt_usedate', `${maxYear}-12-31`);
       }
 
       // 정렬 적용
       const sortBy = filters.sortBy || 'newest';
       switch (sortBy) {
         case 'newest':
-          queryBuilder = queryBuilder.order('created_at', { ascending: false });
+          queryBuilder = queryBuilder.order('kapt_usedate', { ascending: false });
           break;
         case 'name':
           queryBuilder = queryBuilder.order('name', { ascending: true });
           break;
         default:
-          queryBuilder = queryBuilder.order('created_at', { ascending: false });
+          queryBuilder = queryBuilder.order('kapt_usedate', { ascending: false });
       }
 
       // 페이지네이션
@@ -628,18 +637,7 @@ class SupabaseApartmentService {
         .eq('kapt_code', kaptCode)
         .single();
 
-      // 2차: apartment_complexes에 없으면 apartments 테이블에서 조회 (기본 정보)
-      if (error || !data) {
-        console.log(`apartment_complexes에서 ${kaptCode} 찾을 수 없음, apartments 테이블 조회`);
-        const apartmentResult = await this.supabase
-          .from('apartments')
-          .select('*')
-          .eq('kapt_code', kaptCode)
-          .single();
-
-        data = apartmentResult.data;
-        error = apartmentResult.error;
-      }
+      // apartment_complexes 테이블에 모든 데이터가 있으므로 2차 조회 불필요
 
       if (error || !data) {
         console.error('아파트 상세 조회 오류:', error);

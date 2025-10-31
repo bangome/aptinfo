@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense, useCallback, useRef } from 'react';
+import { useState, useEffect, Suspense, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SearchBar } from '@/components/SearchBar';
 import { ResultsList } from '@/components/ResultsList';
@@ -16,6 +16,9 @@ import { facilities } from '@/data/dummy-apartments';
 import { Apartment, SearchFilters } from '@/types/apartment';
 import { realApartmentService, SearchResponse } from '@/services/realApartmentService';
 import { convertToApartments } from '@/lib/apartment-conversion';
+import { getSidos, getSiguguns } from '@/data/korea-regions';
+
+const BATCH_SIZE = 18; // 한 번에 추가로 로드할 아이템 수
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
@@ -34,18 +37,35 @@ function SearchPageContent() {
   const [filters, setFilters] = useState<SearchFilters>({
     query: searchParams?.get('q') || '',
     region: searchParams?.get('region') || '',
+    sido: '',
+    sigungu: '',
     buildYearRange: [2000, 2025],
     priceRange: [10000000, 10000000000],
     areaRange: [40, 200],
     facilities: [],
     dealType: 'all',
     page: 1,
-    limit: 20,
+    limit: 18,
     sortBy: 'newest'
   });
-  
+
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'area'>('newest');
+
+  // 새로운 필터 state
+  const [selectedSido, setSelectedSido] = useState<string>('');
+  const [selectedSigugun, setSelectedSigugun] = useState<string>('');
+  const [unitsRange, setUnitsRange] = useState<[number, number]>([0, 3000]);
+  const [parkingRange, setParkingRange] = useState<[number, number]>([0, 5000]);
+  const [exclusiveAreaRange, setExclusiveAreaRange] = useState<[number, number]>([40, 200]);
+
+  // 디바운싱을 위한 임시 state
+  const [tempUnitsRange, setTempUnitsRange] = useState<[number, number]>([0, 3000]);
+  const [tempParkingRange, setTempParkingRange] = useState<[number, number]>([0, 5000]);
+  const [tempExclusiveAreaRange, setTempExclusiveAreaRange] = useState<[number, number]>([40, 200]);
+
+  // 프로그레시브 렌더링을 위한 state (한 번에 표시할 결과 수)
+  const [displayedCount, setDisplayedCount] = useState<number>(BATCH_SIZE);
 
   /**
    * Data Flow Step 1: User enters query -> onChange handler updates state
@@ -121,19 +141,36 @@ function SearchPageContent() {
     performSearch(updatedFilters);
   };
 
-  // Load more results for infinite scroll
+  // 클라이언트 필터가 활성화되어 있는지 확인 (세대수, 주차, 면적만)
+  const hasActiveClientFilters = useMemo(() => {
+    return !!(unitsRange[0] !== 0 || unitsRange[1] !== 3000 ||
+              parkingRange[0] !== 0 || parkingRange[1] !== 5000 ||
+              exclusiveAreaRange[0] !== 40 || exclusiveAreaRange[1] !== 200);
+  }, [unitsRange, parkingRange, exclusiveAreaRange]);
+
+  // Load more results for infinite scroll (서버 페이지네이션)
   const loadMoreResults = useCallback(() => {
+    // 클라이언트 필터가 활성화되어 있으면 서버 페이지네이션 중단
+    if (hasActiveClientFilters) return;
     if (!hasMore || isLoadingMore || isLoading) return;
-    
+
     const nextPage = currentPage + 1;
     const updatedFilters = { ...filters, page: nextPage };
     setFilters(updatedFilters);
     setCurrentPage(nextPage);
     performSearch(updatedFilters, true);
-  }, [hasMore, isLoadingMore, isLoading, currentPage, filters]);
+  }, [hasMore, isLoadingMore, isLoading, currentPage, filters, hasActiveClientFilters]);
 
-  // Intersection Observer for infinite scroll
+  // Intersection Observer for infinite scroll (서버 페이지네이션)
   useEffect(() => {
+    // 클라이언트 필터가 활성화되어 있으면 서버 인피니티 스크롤 비활성화
+    if (hasActiveClientFilters) {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+      return;
+    }
+
     if (observerRef.current) {
       observerRef.current.disconnect();
     }
@@ -156,112 +193,255 @@ function SearchPageContent() {
         observerRef.current.disconnect();
       }
     };
-  }, [loadMoreResults, hasMore, isLoadingMore, isLoading]);
+  }, [loadMoreResults, hasMore, isLoadingMore, isLoading, hasActiveClientFilters]);
 
-  // Use apartments directly since sorting is handled by the service
-  const sortedApartments = apartments;
+  // 클라이언트 사이드 필터링 (세대수, 주차, 면적만 - 시도/시군구는 서버에서 처리)
+  const filteredApartments = useMemo(() => {
+    console.log('🔍 클라이언트 필터링 시작:', {
+      총아파트수: apartments.length,
+      unitsRange,
+      parkingRange,
+      exclusiveAreaRange
+    });
 
-  const FilterPanel = () => (
-    <div className="space-y-6">
-      {/* Price Range */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-body1">매매가격 (억원)</h3>
-        <Slider
-          value={[filters.priceRange![0] / 100000000, filters.priceRange![1] / 100000000]}
-          onValueChange={([min, max]) =>
-            handleFilterChange('priceRange', [min * 100000000, max * 100000000])
-          }
-          max={30}
-          min={0.5}
-          step={0.5}
-          className="w-full"
-        />
-        <div className="flex justify-between text-body2 text-muted-foreground">
-          <span>{(filters.priceRange![0] / 100000000).toFixed(1)}억</span>
-          <span>{(filters.priceRange![1] / 100000000).toFixed(1)}억</span>
+    const filtered = apartments.filter(apartment => {
+      // 시도/시군구는 서버에서 이미 필터링됨 - 제거!
+
+      // 세대수 필터
+      if (apartment.units) {
+        if (apartment.units < unitsRange[0] || apartment.units > unitsRange[1]) {
+          return false;
+        }
+      }
+
+      // 주차대수 필터
+      const parkingCount = typeof apartment.parking === 'number'
+        ? apartment.parking
+        : apartment.parking?.total || 0;
+      if (parkingCount < parkingRange[0] || parkingCount > parkingRange[1]) {
+        return false;
+      }
+
+      // 전용면적 필터
+      if (apartment.area?.exclusive) {
+        if (apartment.area.exclusive < exclusiveAreaRange[0] ||
+            apartment.area.exclusive > exclusiveAreaRange[1]) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    console.log('✅ 클라이언트 필터링 완료:', {
+      필터전: apartments.length,
+      필터후: filtered.length
+    });
+
+    return filtered;
+  }, [apartments, unitsRange, parkingRange, exclusiveAreaRange]);
+
+  // 프로그레시브 렌더링: 클라이언트 필터가 있을 때만 적용, 서버 페이지네이션일 때는 모든 결과 표시
+  const displayedApartments = useMemo(() => {
+    if (hasActiveClientFilters) {
+      // 클라이언트 필터 활성화: 프로그레시브 렌더링
+      return filteredApartments.slice(0, displayedCount);
+    } else {
+      // 서버 페이지네이션: 모든 로드된 아파트 표시
+      return filteredApartments;
+    }
+  }, [filteredApartments, displayedCount, hasActiveClientFilters]);
+
+  // 더 표시할 결과가 있는지 확인
+  const hasMoreFiltered = hasActiveClientFilters && displayedCount < filteredApartments.length;
+
+  // 시도 변경 시 시군구 초기화 및 서버 필터 업데이트
+  const handleSidoChange = useCallback((sido: string) => {
+    setSelectedSido(sido);
+    setSelectedSigugun(''); // 시도 변경 시 시군구 초기화
+
+    // 서버 사이드 필터 업데이트
+    const updatedFilters = { ...filters, sido, sigungu: '', page: 1 };
+    setFilters(updatedFilters);
+    setCurrentPage(1);
+    performSearch(updatedFilters);
+  }, [filters]);
+
+  // 클라이언트 필터 변경 시에만 표시 카운트 리셋 (서버 페이지네이션 시에는 리셋 안함)
+  useEffect(() => {
+    // 클라이언트 필터가 활성화되었을 때만 리셋
+    if (hasActiveClientFilters) {
+      setDisplayedCount(BATCH_SIZE);
+    }
+  }, [unitsRange, parkingRange, exclusiveAreaRange]);
+
+  // 더 많은 필터링된 결과 로드
+  const loadMoreFilteredResults = useCallback(() => {
+    if (!hasMoreFiltered) return;
+    setDisplayedCount(prev => prev + BATCH_SIZE);
+  }, [hasMoreFiltered]);
+
+  // Intersection Observer for filtered results infinite scroll
+  const filteredLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const filteredObserverRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    if (filteredObserverRef.current) {
+      filteredObserverRef.current.disconnect();
+    }
+
+    filteredObserverRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreFiltered && !isLoading && !isLoadingMore) {
+          loadMoreFilteredResults();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (filteredLoadMoreRef.current) {
+      filteredObserverRef.current.observe(filteredLoadMoreRef.current);
+    }
+
+    return () => {
+      if (filteredObserverRef.current) {
+        filteredObserverRef.current.disconnect();
+      }
+    };
+  }, [loadMoreFilteredResults, hasMoreFiltered, isLoading, isLoadingMore]);
+
+  // 디바운싱: 슬라이더 값이 변경된 후 500ms 후에 실제 필터 적용
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setUnitsRange(tempUnitsRange);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [tempUnitsRange]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setParkingRange(tempParkingRange);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [tempParkingRange]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setExclusiveAreaRange(tempExclusiveAreaRange);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [tempExclusiveAreaRange]);
+
+  // 핸들러 메모이제이션 (임시 값 업데이트)
+  const handleUnitsChange = useCallback((value: number[]) => {
+    setTempUnitsRange(value as [number, number]);
+  }, []);
+
+  const handleParkingChange = useCallback((value: number[]) => {
+    setTempParkingRange(value as [number, number]);
+  }, []);
+
+  const handleAreaChange = useCallback((value: number[]) => {
+    setTempExclusiveAreaRange(value as [number, number]);
+  }, []);
+
+  const FilterPanel = useMemo(() => {
+    const sidos = getSidos();
+    const siguguns = selectedSido ? getSiguguns(selectedSido) : [];
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {/* 시도 */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">시도</label>
+          <Select value={selectedSido || 'all'} onValueChange={(value) => handleSidoChange(value === 'all' ? '' : value)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="시도 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체</SelectItem>
+              {sidos.map((sido) => (
+                <SelectItem key={sido} value={sido}>{sido}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* 시군구 */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">시군구</label>
+          <Select
+            value={selectedSigugun || 'all'}
+            onValueChange={(value) => {
+              const newSigugun = value === 'all' ? '' : value;
+              setSelectedSigugun(newSigugun);
+              // 서버 사이드 필터 업데이트
+              const updatedFilters = { ...filters, sigungu: newSigugun, page: 1 };
+              setFilters(updatedFilters);
+              setCurrentPage(1);
+              performSearch(updatedFilters);
+            }}
+            disabled={!selectedSido}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="시군구 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체</SelectItem>
+              {siguguns.map((sigugun) => (
+                <SelectItem key={sigugun} value={sigugun}>{sigugun}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* 세대수 */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">
+            세대수: {tempUnitsRange[0]} ~ {tempUnitsRange[1] >= 3000 ? '3000+' : tempUnitsRange[1]}
+          </label>
+          <Slider
+            value={tempUnitsRange}
+            onValueChange={handleUnitsChange}
+            max={3000}
+            min={0}
+            step={50}
+            className="w-full"
+          />
+        </div>
+
+        {/* 주차대수 */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">
+            주차: {tempParkingRange[0]} ~ {tempParkingRange[1] >= 5000 ? '5000+' : tempParkingRange[1]}대
+          </label>
+          <Slider
+            value={tempParkingRange}
+            onValueChange={handleParkingChange}
+            max={5000}
+            min={0}
+            step={50}
+            className="w-full"
+          />
+        </div>
+
+        {/* 전용면적 */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">
+            면적: {tempExclusiveAreaRange[0]} ~ {tempExclusiveAreaRange[1]}㎡
+          </label>
+          <Slider
+            value={tempExclusiveAreaRange}
+            onValueChange={handleAreaChange}
+            max={300}
+            min={20}
+            step={10}
+            className="w-full"
+          />
         </div>
       </div>
-
-      {/* Deal Type */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-body1">매매방식</h3>
-        <Select value={filters.dealType} onValueChange={(value) => handleFilterChange('dealType', value)}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="매매방식 선택" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체</SelectItem>
-            <SelectItem value="sale">매매</SelectItem>
-            <SelectItem value="lease">전세</SelectItem>
-            <SelectItem value="rent">월세</SelectItem>
-            <SelectItem value="short-term">단기임대</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Build Year Range */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-body1">건축년도</h3>
-        <Slider
-          value={filters.buildYearRange!}
-          onValueChange={(value) => handleFilterChange('buildYearRange', value)}
-          max={2025}
-          min={1990}
-          step={1}
-          className="w-full"
-        />
-        <div className="flex justify-between text-body2 text-muted-foreground">
-          <span>{filters.buildYearRange![0]}년</span>
-          <span>{filters.buildYearRange![1]}년</span>
-        </div>
-      </div>
-
-      {/* Area Range */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-body1">전용면적 (㎡)</h3>
-        <Slider
-          value={filters.areaRange!}
-          onValueChange={(value) => handleFilterChange('areaRange', value)}
-          max={300}
-          min={20}
-          step={10}
-          className="w-full"
-        />
-        <div className="flex justify-between text-body2 text-muted-foreground">
-          <span>{filters.areaRange![0]}㎡</span>
-          <span>{filters.areaRange![1]}㎡</span>
-        </div>
-      </div>
-
-      {/* Facilities */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-body1">편의시설</h3>
-        <div className="grid grid-cols-1 gap-2">
-          {facilities.slice(0, 8).map((facility) => (
-            <div key={facility.id} className="flex items-center space-x-2">
-              <Checkbox
-                id={facility.id}
-                checked={filters.facilities?.includes(facility.name) || false}
-                onCheckedChange={(checked) => {
-                  const currentFacilities = filters.facilities || [];
-                  if (checked) {
-                    handleFilterChange('facilities', [...currentFacilities, facility.name]);
-                  } else {
-                    handleFilterChange('facilities',
-                      currentFacilities.filter(f => f !== facility.name)
-                    );
-                  }
-                }}
-              />
-              <label htmlFor={facility.id} className="text-body2 text-foreground cursor-pointer">
-                {facility.name}
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+    );
+  }, [selectedSido, selectedSigugun, tempUnitsRange, tempParkingRange, tempExclusiveAreaRange, handleSidoChange, handleUnitsChange, handleParkingChange, handleAreaChange]);
 
   return (
     <div className="container px-4 py-6 sm:py-8">
@@ -312,88 +492,81 @@ function SearchPageContent() {
               </div>
             </div>
           </div>
+        </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm sm:text-body1 font-semibold" role="status" aria-live="polite">
-                {isLoading ? '검색 중...' : `검색결과 ${totalCount}개 (${sortedApartments.length}개 표시)`}
-              </span>
-              {filters.query && (
-                <Badge variant="secondary">&ldquo;{filters.query}&rdquo;</Badge>
-              )}
-              {filters.region && (
-                <Badge variant="secondary">{filters.region}</Badge>
+        {/* Filter Panel - 상단에 배치 */}
+        <Card>
+          <CardContent className="p-4 lg:p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Filter className="h-5 w-5" aria-hidden="true" />
+              <h2 className="font-semibold text-h6">검색 필터</h2>
+            </div>
+            {FilterPanel}
+          </CardContent>
+        </Card>
+
+        {/* Search Results Info */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm sm:text-body1 font-semibold" role="status" aria-live="polite">
+            {isLoading ? '검색 중...' : `검색결과 ${filteredApartments.length}개+${apartments.length !== filteredApartments.length ? ` (전체 ${apartments.length}개+ 중)` : ''}`}
+          </span>
+          {filters.query && (
+            <Badge variant="secondary">&ldquo;{filters.query}&rdquo;</Badge>
+          )}
+          {selectedSido && (
+            <Badge variant="secondary">{selectedSido}</Badge>
+          )}
+          {selectedSigugun && (
+            <Badge variant="secondary">{selectedSigugun}</Badge>
+          )}
+        </div>
+
+        {/* Results - Using ResultsList component for proper state management */}
+        <section className="w-full" aria-label="검색 결과">
+          <ResultsList
+            apartments={displayedApartments}
+            isLoading={isLoading}
+            error={error}
+            onBookmark={(id) => console.log('Bookmark:', id)}
+            onCompare={(id) => console.log('Compare:', id)}
+            bookmarkedIds={[]}
+            comparedIds={[]}
+            viewMode={viewMode}
+          />
+
+          {/* Infinite Scroll Loading Trigger - Server Data (클라이언트 필터가 없을 때만) */}
+          {hasMore && !error && !hasActiveClientFilters && (
+            <div ref={loadMoreRef} className="mt-8 flex justify-center">
+              {isLoadingMore && (
+                <div className="text-center py-4">
+                  <div className="inline-flex items-center gap-2 text-muted-foreground">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
+                    더 많은 결과를 불러오는 중...
+                  </div>
+                </div>
               )}
             </div>
+          )}
 
-            {/* Mobile Filter Button */}
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="filter" size="sm" icon={<SlidersHorizontal className="h-4 w-4" />} className="lg:hidden">
-                  필터
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-80">
-                <SheetHeader>
-                  <SheetTitle>검색 필터</SheetTitle>
-                </SheetHeader>
-                <div className="mt-6">
-                  <FilterPanel />
+          {/* Infinite Scroll Loading Trigger - Filtered Results (클라이언트 필터가 있을 때) */}
+          {hasMoreFiltered && !error && hasActiveClientFilters && (
+            <div ref={filteredLoadMoreRef} className="mt-8 flex justify-center">
+              <div className="text-center py-4">
+                <div className="inline-flex items-center gap-2 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
+                  더 많은 결과를 표시하는 중...
                 </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
-          {/* Desktop Filter Panel */}
-          <aside className="hidden lg:block w-80 flex-shrink-0">
-            <Card>
-              <CardContent className="p-4 lg:p-6">
-                <div className="flex items-center gap-2 mb-4 lg:mb-6">
-                  <Filter className="h-5 w-5" aria-hidden="true" />
-                  <h2 className="font-semibold text-h6">검색 필터</h2>
-                </div>
-                <FilterPanel />
-              </CardContent>
-            </Card>
-          </aside>
-
-          {/* Results - Using ResultsList component for proper state management */}
-          <section className="flex-1 min-w-0" aria-label="검색 결과">
-            <ResultsList
-              apartments={sortedApartments}
-              isLoading={isLoading}
-              error={error}
-              onBookmark={(id) => console.log('Bookmark:', id)}
-              onCompare={(id) => console.log('Compare:', id)}
-              bookmarkedIds={[]}
-              comparedIds={[]}
-            />
-            
-            {/* Infinite Scroll Loading Trigger */}
-            {hasMore && !error && (
-              <div ref={loadMoreRef} className="mt-8 flex justify-center">
-                {isLoadingMore && (
-                  <div className="text-center py-4">
-                    <div className="inline-flex items-center gap-2 text-muted-foreground">
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
-                      더 많은 결과를 불러오는 중...
-                    </div>
-                  </div>
-                )}
               </div>
-            )}
-            
-            {/* End of Results Message */}
-            {!hasMore && apartments.length > 0 && !isLoading && (
-              <div className="mt-8 text-center py-4 text-muted-foreground">
-                모든 검색 결과를 확인했습니다.
-              </div>
-            )}
-          </section>
-        </div>
+            </div>
+          )}
+
+          {/* End of Results Message */}
+          {!hasMore && !hasMoreFiltered && apartments.length > 0 && !isLoading && (
+            <div className="mt-8 text-center py-4 text-muted-foreground">
+              모든 검색 결과를 확인했습니다.
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

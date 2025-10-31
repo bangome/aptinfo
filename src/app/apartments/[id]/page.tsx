@@ -70,6 +70,7 @@ export default function ApartmentDetailPage() {
   const [isLoadingFee, setIsLoadingFee] = useState(false);
   const [yearlyManagementData, setYearlyManagementData] = useState<any>(null);
   const [isLoadingYearlyFee, setIsLoadingYearlyFee] = useState(false);
+  const [showDetailedFees, setShowDetailedFees] = useState(false);
 
   // Load apartment data using React Query
   const {
@@ -109,77 +110,99 @@ export default function ApartmentDetailPage() {
   // Convert to Apartment type
   const apartment = apartmentData ? convertToApartment(apartmentData) : null;
 
-  // Fetch management fee data
-  useQuery({
-    queryKey: ['managementFee', kaptCode],
-    queryFn: async () => {
-      if (!kaptCode) return null;
-      
-      try {
-        setIsLoadingFee(true);
-        const lastYear = new Date().getFullYear() - 1;
-        const response = await fetch(`/api/management-fees/test?kaptCode=${kaptCode}&year=${lastYear}&month=1`);
-        
-        if (!response.ok) {
-          console.error('Failed to fetch management fee');
-          return null;
-        }
-        
-        const data = await response.json();
-        if (data?.perHouseholdFee?.total) {
-          setManagementFee(data.perHouseholdFee.total);
-          return data.perHouseholdFee.total;
-        }
-        return null;
-      } catch (error) {
-        console.error('Error fetching management fee:', error);
-        return null;
-      } finally {
-        setIsLoadingFee(false);
-      }
-    },
-    enabled: !!kaptCode && !!apartment,
-    staleTime: 1000 * 60 * 30, // 30분간 캐시
-    gcTime: 1000 * 60 * 60 * 2, // 2시간 가비지 컬렉션
-    retry: 1
-  });
+  // DB에서 평균 관리비를 먼저 로드
+  const loadAverageManagementFeeFromDB = () => {
+    if (!apartmentData) return;
 
-  // Fetch yearly management fee data
-  useQuery({
-    queryKey: ['yearlyManagementFee', kaptCode],
-    queryFn: async () => {
-      if (!kaptCode) return null;
-      
-      try {
-        setIsLoadingYearlyFee(true);
-        const lastYear = new Date().getFullYear() - 1;
-        const response = await fetch(`/api/management-fees/yearly?kaptCode=${kaptCode}&year=${lastYear}`);
-        
-        if (!response.ok) {
-          console.error('Failed to fetch yearly management fee');
-          return null;
-        }
-        
-        const data = await response.json();
-        console.log('Yearly management data received:', data);
-        setYearlyManagementData(data);
-        // Update the main management fee with yearly average
-        if (data?.yearlyAverage?.perHouseholdFee?.total) {
-          setManagementFee(data.yearlyAverage.perHouseholdFee.total);
-        }
-        return data;
-      } catch (error) {
-        console.error('Error fetching yearly management fee:', error);
-        return null;
-      } finally {
-        setIsLoadingYearlyFee(false);
+    const apiData = (apartmentData as any)?.rawData || {};
+    if (apiData.avg_management_fee) {
+      setManagementFee(apiData.avg_management_fee);
+    }
+  };
+
+  // Function to load detailed management fee data
+  const loadDetailedManagementFees = async () => {
+    if (!kaptCode || isLoadingYearlyFee || yearlyManagementData) return;
+
+    try {
+      setIsLoadingYearlyFee(true);
+      const year = new Date().getFullYear() - 1; // 작년 데이터
+      const response = await fetch(`/api/management-fees/${kaptCode}?year=${year}`);
+
+      if (!response.ok) {
+        console.error('Failed to fetch management fee details');
+        return;
       }
-    },
-    enabled: !!kaptCode && !!apartment,
-    staleTime: 1000 * 60 * 30, // 30분간 캐시
-    gcTime: 1000 * 60 * 60 * 2, // 2시간 가비지 컬렉션
-    retry: 1
-  });
+
+      const data = await response.json();
+      console.log('Management fee data received:', data);
+
+      // 세대 수 가져오기
+      const apiData = (apartmentData as any)?.rawData || {};
+      const totalUnits = apiData.kapt_da_cnt || apartment?.units || 1;
+
+      // 세대당 평균 계산
+      const perHouseholdCommon = Math.round(data.avgCommonFee / totalUnits);
+      const perHouseholdIndividual = Math.round(data.avgIndividualFee / totalUnits);
+      const perHouseholdTotal = Math.round(data.avgTotalFee / totalUnits);
+
+      // 데이터 구조 변환
+      setYearlyManagementData({
+        year: data.year,
+        dataCount: data.dataCount,
+        yearlyAverage: {
+          perHouseholdFee: {
+            common: perHouseholdCommon,
+            individual: perHouseholdIndividual,
+            total: perHouseholdTotal
+          }
+        },
+        monthlyData: data.monthlyData.map((month: any) => ({
+          month: month.month,
+          perHouseholdFee: {
+            common: Math.round(month.commonFee / totalUnits),
+            individual: Math.round(month.individualFee / totalUnits),
+            total: Math.round(month.totalFee / totalUnits)
+          }
+        }))
+      });
+
+      // 평균 관리비 업데이트
+      setManagementFee(perHouseholdTotal);
+
+      // DB에 평균 관리비 저장
+      try {
+        await fetch('/api/management-fees/update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            kaptCode,
+            avgCommonFee: perHouseholdCommon,
+            avgIndividualFee: perHouseholdIndividual,
+            avgTotalFee: perHouseholdTotal,
+            year: data.year,
+            monthCount: data.dataCount
+          })
+        });
+        console.log('✅ Management fee saved to DB');
+      } catch (saveError) {
+        console.error('Failed to save management fee to DB:', saveError);
+        // 저장 실패해도 화면에는 표시
+      }
+
+    } catch (error) {
+      console.error('Error fetching management fee details:', error);
+    } finally {
+      setIsLoadingYearlyFee(false);
+    }
+  };
+
+  // 컴포넌트 마운트 시 DB에서 평균 관리비 로드
+  if (apartmentData && !managementFee) {
+    loadAverageManagementFeeFromDB();
+  }
 
   // Load price range data using the dedicated hook
   const {
@@ -260,16 +283,6 @@ export default function ApartmentDetailPage() {
         </ol>
       </nav>
 
-      {/* Back Button */}
-      <div className="mb-6">
-        <Link href="/search">
-          <Button variant="ghost" className="gap-2 p-0 h-auto">
-            <ArrowLeft className="h-4 w-4" />
-            검색 결과로 돌아가기
-          </Button>
-        </Link>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         {/* Image Gallery and Basic Info */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
@@ -321,7 +334,14 @@ export default function ApartmentDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span>{apartment.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl sm:text-3xl font-bold">{apartment.name}</span>
+                  {getApiData().use_yn === 'N' && (
+                    <Badge variant="secondary" className="text-muted-foreground">
+                      입주전
+                    </Badge>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <Button
                     variant={isBookmarked ? "bookmarked" : "bookmark"}
@@ -410,36 +430,36 @@ export default function ApartmentDetailPage() {
                     단지 정보
                   </h3>
                   <div className="space-y-3">
-                    {getApiData().kapt_dong_cnt && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">동수</span>
-                        <span className="font-semibold">{formatNumber(getApiData().kapt_dong_cnt)}동</span>
-                      </div>
-                    )}
-                    {getApiData().ho_cnt && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">호수</span>
-                        <span className="font-semibold">{formatNumber(getApiData().ho_cnt)}호</span>
-                      </div>
-                    )}
-                    {getApiData().kapt_tarea && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">대지면적</span>
-                        <span className="font-semibold">{formatNumber(getApiData().kapt_tarea)}㎡</span>
-                      </div>
-                    )}
-                    {getApiData().kapt_marea && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">연면적</span>
-                        <span className="font-semibold">{formatNumber(getApiData().kapt_marea)}㎡</span>
-                      </div>
-                    )}
-                    {getApiData().priv_area && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">전용면적 합계</span>
-                        <span className="font-semibold">{formatNumber(getApiData().priv_area)}㎡</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">동수</span>
+                      <span className={getApiData().kapt_dong_cnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kapt_dong_cnt ? `${formatNumber(getApiData().kapt_dong_cnt)}개 동` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">호수</span>
+                      <span className={getApiData().ho_cnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().ho_cnt ? `${formatNumber(getApiData().ho_cnt)}개 호` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">대지면적</span>
+                      <span className={getApiData().kapt_tarea ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kapt_tarea ? `${formatNumber(getApiData().kapt_tarea)}㎡` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">연면적</span>
+                      <span className={getApiData().kapt_marea ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kapt_marea ? `${formatNumber(getApiData().kapt_marea)}㎡` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">전용면적 합계</span>
+                      <span className={getApiData().priv_area ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().priv_area ? `${formatNumber(getApiData().priv_area)}㎡` : '정보없음'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -449,24 +469,24 @@ export default function ApartmentDetailPage() {
                     층수 정보
                   </h3>
                   <div className="space-y-3">
-                    {getApiData().kapt_base_floor && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">지하층수</span>
-                        <span className="font-semibold">{getApiData().kapt_base_floor}층</span>
-                      </div>
-                    )}
-                    {getApiData().kapt_top_floor && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">지상최고층수</span>
-                        <span className="font-semibold">{getApiData().kapt_top_floor}층</span>
-                      </div>
-                    )}
-                    {getApiData().ktown_flr_no && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">지상층수</span>
-                        <span className="font-semibold">{getApiData().ktown_flr_no}층</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">지하층수</span>
+                      <span className={getApiData().kapt_base_floor ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kapt_base_floor ? `${getApiData().kapt_base_floor}층` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">지상최고층수</span>
+                      <span className={getApiData().kapt_top_floor ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kapt_top_floor ? `${getApiData().kapt_top_floor}층` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">지상층수</span>
+                      <span className={getApiData().ktown_flr_no ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().ktown_flr_no ? `${getApiData().ktown_flr_no}층` : '정보없음'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -513,14 +533,29 @@ export default function ApartmentDetailPage() {
               )}
 
               {/* 관리비 정보 */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-h6">예상 관리비</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-h6">예상 관리비</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowDetailedFees(!showDetailedFees);
+                      if (!showDetailedFees && !yearlyManagementData) {
+                        loadDetailedManagementFees();
+                      }
+                    }}
+                    className="text-xs"
+                  >
+                    {showDetailedFees ? '간단히 보기' : '상세 보기'}
+                  </Button>
+                </div>
                 <div className="flex justify-between text-body2">
                   <span className="text-muted-foreground">
                     <GlossaryTooltip term="관리비">세대당 월평균 관리비</GlossaryTooltip>
                   </span>
                   <span className="font-semibold">
-                    {isLoadingYearlyFee ? (
+                    {isLoadingYearlyFee && !yearlyManagementData ? (
                       <span className="text-muted-foreground">조회중...</span>
                     ) : managementFee ? (
                       <>{formatNumber(managementFee)}원/월</>
@@ -535,6 +570,155 @@ export default function ApartmentDetailPage() {
                   </div>
                 )}
               </div>
+
+              {/* 관리비 상세 정보 - 상세 보기 클릭시에만 표시 */}
+              {showDetailedFees && (
+                <>
+                  <Separator />
+                  <div className="space-y-6">
+                    {isLoadingYearlyFee ? (
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                        <p className="text-body2 text-muted-foreground">연간 관리비 정보를 불러오는 중...</p>
+                      </div>
+                    ) : yearlyManagementData && yearlyManagementData.monthlyData ? (
+                      <div className="space-y-6">
+                        {/* 연간 평균 요약 */}
+                        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4">
+                          <h4 className="font-semibold text-body1 mb-3 flex items-center gap-2">
+                            📊 {yearlyManagementData.year}년 평균 관리비
+                            <span className="text-body2 text-muted-foreground">({yearlyManagementData.dataCount}개월 데이터)</span>
+                          </h4>
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="text-center">
+                              <div className="text-sm text-muted-foreground mb-1">공용관리비</div>
+                              <div className="text-xl font-bold text-blue-600">
+                                {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.common || 0)}원
+                              </div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-sm text-muted-foreground mb-1">개별사용료</div>
+                              <div className="text-xl font-bold text-green-600">
+                                {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.individual || 0)}원
+                              </div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-sm text-muted-foreground mb-1">총 관리비</div>
+                              <div className="text-2xl font-bold text-purple-600">
+                                {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.total || 0)}원
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 관리비 내역 */}
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-body1 flex items-center gap-2">
+                            📋 관리비 내역
+                          </h4>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b">
+                                  <th className="text-left p-2">월</th>
+                                  <th className="text-right p-2 text-blue-600">공용관리비</th>
+                                  <th className="text-right p-2 text-green-600">개별사용료</th>
+                                  <th className="text-right p-2 text-purple-600 font-bold">합계</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {yearlyManagementData?.monthlyData?.map((monthData: any, index: number) => {
+                                  const apiData = (apartmentData as any)?.rawData || {};
+                                  const totalUnits = apiData.kapt_da_cnt || apartment?.units || 1;
+
+                                  // 전체 금액 계산 (세대수 * 세대당 금액)
+                                  const totalCommon = (monthData?.perHouseholdFee?.common || 0) * totalUnits;
+                                  const totalIndividual = (monthData?.perHouseholdFee?.individual || 0) * totalUnits;
+                                  const totalAmount = (monthData?.perHouseholdFee?.total || 0) * totalUnits;
+
+                                  return (
+                                    <tr key={index} className="border-b hover:bg-muted/30">
+                                      <td className="p-2 font-semibold">{monthData?.month}월</td>
+                                      <td className="p-2 text-right">
+                                        <div className="text-blue-600 font-medium">
+                                          {formatNumber(monthData?.perHouseholdFee?.common || 0)}원
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          전체: {formatNumber(totalCommon)}원
+                                        </div>
+                                      </td>
+                                      <td className="p-2 text-right">
+                                        <div className="text-green-600 font-medium">
+                                          {formatNumber(monthData?.perHouseholdFee?.individual || 0)}원
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          전체: {formatNumber(totalIndividual)}원
+                                        </div>
+                                      </td>
+                                      <td className="p-2 text-right">
+                                        <div className="font-bold text-purple-600">
+                                          {formatNumber(monthData?.perHouseholdFee?.total || 0)}원
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          전체: {formatNumber(totalAmount)}원
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                }) || []}
+                                {/* 평균 행 */}
+                                <tr className="border-t-2 bg-muted/20 font-bold">
+                                  <td className="p-2">평균</td>
+                                  <td className="p-2 text-right text-blue-600">
+                                    {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.common || 0)}원
+                                  </td>
+                                  <td className="p-2 text-right text-green-600">
+                                    {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.individual || 0)}원
+                                  </td>
+                                  <td className="p-2 text-right text-purple-600">
+                                    {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.total || 0)}원
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                          {(() => {
+                            const apiData = (apartmentData as any)?.rawData || {};
+                            const totalUnits = apiData.kapt_da_cnt || apartment?.units || 1;
+                            const avgTotal = yearlyManagementData?.yearlyAverage?.perHouseholdFee?.total || 0;
+                            const totalAmount = avgTotal * totalUnits;
+
+                            return (
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                                <div className="font-semibold text-blue-900 mb-1">💡 계산 방법</div>
+                                <div className="text-blue-800">
+                                  전체 관리비 <span className="font-bold text-blue-600">{formatNumber(totalAmount)}원</span> ÷
+                                  세대수 <span className="font-bold text-blue-600">{formatNumber(totalUnits)}세대</span> =
+                                  세대당 <span className="font-bold text-purple-600">{formatNumber(avgTotal)}원</span>
+                                </div>
+                                <div className="text-xs text-blue-700 mt-1">
+                                  * 위 금액은 {yearlyManagementData.year}년 평균 기준입니다
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        <div className="text-center text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+                          💡 실제 세대별 관리비는 평형, 층수, 사용량에 따라 달라질 수 있습니다<br/>
+                          📅 데이터 기준: {yearlyManagementData.year}년 ({yearlyManagementData.dataCount}개월)
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 space-y-2">
+                        <div className="text-muted-foreground">
+                          연간 관리비 정보를 불러올 수 없습니다.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -668,90 +852,86 @@ export default function ApartmentDetailPage() {
                     주차시설
                   </h4>
                   <div className="space-y-2">
-                    {getApiData().kaptd_pcnt && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">지상주차</span>
-                        <span className="font-semibold">{formatNumber(getApiData().kaptd_pcnt)}대</span>
-                      </div>
-                    )}
-                    {getApiData().kaptd_pcntu && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">지하주차</span>
-                        <span className="font-semibold">{formatNumber(getApiData().kaptd_pcntu)}대</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">지상주차</span>
+                      <span className={getApiData().kaptd_pcnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kaptd_pcnt ? `${formatNumber(getApiData().kaptd_pcnt)}대` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">지하주차</span>
+                      <span className={getApiData().kaptd_pcntu ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kaptd_pcntu ? `${formatNumber(getApiData().kaptd_pcntu)}대` : '정보없음'}
+                      </span>
+                    </div>
                     <div className="flex justify-between text-body2">
                       <span className="text-muted-foreground">총 주차대수</span>
-                      <span className="font-semibold text-primary">
-                        {formatNumber((getApiData().kaptd_pcnt || 0) + (getApiData().kaptd_pcntu || 0))}대
+                      <span className={((getApiData().kaptd_pcnt || 0) + (getApiData().kaptd_pcntu || 0)) > 0 ? "font-semibold text-primary" : "text-muted-foreground"}>
+                        {((getApiData().kaptd_pcnt || 0) + (getApiData().kaptd_pcntu || 0)) > 0 ? `${formatNumber((getApiData().kaptd_pcnt || 0) + (getApiData().kaptd_pcntu || 0))}대` : '정보없음'}
                       </span>
                     </div>
                   </div>
                 </div>
 
                 {/* 승강기 정보 */}
-                {(getApiData().kaptd_ecnt || getApiData().kaptd_ecntp) && (
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-body1 flex items-center gap-2">
-                      <MoveVertical className="h-4 w-4 text-primary" />
-                      승강기
-                    </h4>
-                    <div className="space-y-2">
-                      {getApiData().kaptd_ecnt && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">승강기 대수</span>
-                          <span className="font-semibold">{formatNumber(getApiData().kaptd_ecnt)}대</span>
-                        </div>
-                      )}
-                      {getApiData().kaptd_ecntp && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">승강정원</span>
-                          <span className="font-semibold">{formatNumber(getApiData().kaptd_ecntp)}명</span>
-                        </div>
-                      )}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-body1 flex items-center gap-2">
+                    <MoveVertical className="h-4 w-4 text-primary" />
+                    승강기
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">승강기 대수</span>
+                      <span className={getApiData().kaptd_ecnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kaptd_ecnt ? `${formatNumber(getApiData().kaptd_ecnt)}대` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">승강정원</span>
+                      <span className={getApiData().kaptd_ecntp ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kaptd_ecntp ? `${formatNumber(getApiData().kaptd_ecntp)}명` : '정보없음'}
+                      </span>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* 보안 정보 */}
-                {getApiData().kaptd_cccnt && (
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-body1 flex items-center gap-2">
-                      <Camera className="h-4 w-4 text-primary" />
-                      보안시설
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">CCTV 설치</span>
-                        <span className="font-semibold">{formatNumber(getApiData().kaptd_cccnt)}대</span>
-                      </div>
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-body1 flex items-center gap-2">
+                    <Camera className="h-4 w-4 text-primary" />
+                    보안시설
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">CCTV 설치</span>
+                      <span className={getApiData().kaptd_cccnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kaptd_cccnt ? `${formatNumber(getApiData().kaptd_cccnt)}대` : '정보없음'}
+                      </span>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* 전기차 충전시설 */}
-                {(getApiData().ground_el_charger_cnt || getApiData().underground_el_charger_cnt) && (
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-body1 flex items-center gap-2">
-                      <Zap className="h-4 w-4 text-primary" />
-                      전기차 충전시설
-                    </h4>
-                    <div className="space-y-2">
-                      {getApiData().ground_el_charger_cnt && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">지상 충전기</span>
-                          <span className="font-semibold">{formatNumber(getApiData().ground_el_charger_cnt)}대</span>
-                        </div>
-                      )}
-                      {getApiData().underground_el_charger_cnt && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">지하 충전기</span>
-                          <span className="font-semibold">{formatNumber(getApiData().underground_el_charger_cnt)}대</span>
-                        </div>
-                      )}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-body1 flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-primary" />
+                    전기차 충전시설
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">지상 충전기</span>
+                      <span className={getApiData().ground_el_charger_cnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().ground_el_charger_cnt ? `${formatNumber(getApiData().ground_el_charger_cnt)}대` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">지하 충전기</span>
+                      <span className={getApiData().underground_el_charger_cnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().underground_el_charger_cnt ? `${formatNumber(getApiData().underground_el_charger_cnt)}대` : '정보없음'}
+                      </span>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* 인프라 정보 */}
                 <div className="space-y-3">
@@ -760,18 +940,18 @@ export default function ApartmentDetailPage() {
                     인프라
                   </h4>
                   <div className="space-y-2">
-                    {getApiData().code_net && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">인터넷설비</span>
-                        <span className="font-semibold">{getApiData().code_net}</span>
-                      </div>
-                    )}
-                    {getApiData().kaptd_ecapa && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">수전용량</span>
-                        <span className="font-semibold">{formatNumber(getApiData().kaptd_ecapa)}kW</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">인터넷설비</span>
+                      <span className={getApiData().code_net ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().code_net || '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">수전용량</span>
+                      <span className={getApiData().kaptd_ecapa ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kaptd_ecapa ? `${formatNumber(getApiData().kaptd_ecapa)}kW` : '정보없음'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -782,18 +962,18 @@ export default function ApartmentDetailPage() {
                     안전시설
                   </h4>
                   <div className="space-y-2">
-                    {getApiData().code_falarm && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">화재경보설비</span>
-                        <span className="font-semibold">{getApiData().code_falarm}</span>
-                      </div>
-                    )}
-                    {getApiData().code_wsupply && (
-                      <div className="flex justify-between text-body2">
-                        <span className="text-muted-foreground">급수방식</span>
-                        <span className="font-semibold">{getApiData().code_wsupply}</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">화재경보설비</span>
+                      <span className={getApiData().code_falarm ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().code_falarm || '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">급수방식</span>
+                      <span className={getApiData().code_wsupply ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().code_wsupply || '정보없음'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -801,75 +981,73 @@ export default function ApartmentDetailPage() {
           </Card>
 
           {/* 관리 정보 카드 */}
-          {(getApiData().code_mgr || getApiData().kapt_mgr_cnt || getApiData().kapt_ccompany) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <UserCog className="h-5 w-5" />
-                  관리 정보
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* 일반 관리 */}
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-body1 flex items-center gap-2">
-                      <User className="h-4 w-4 text-primary" />
-                      일반 관리
-                    </h4>
-                    <div className="space-y-2">
-                      {getApiData().code_mgr && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">관리방식</span>
-                          <span className="font-semibold">{getApiData().code_mgr}</span>
-                        </div>
-                      )}
-                      {getApiData().kapt_mgr_cnt && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">관리인원</span>
-                          <span className="font-semibold">{formatNumber(getApiData().kapt_mgr_cnt)}명</span>
-                        </div>
-                      )}
-                      {getApiData().kapt_ccompany && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">관리업체</span>
-                          <span className="font-semibold">{getApiData().kapt_ccompany}</span>
-                        </div>
-                      )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCog className="h-5 w-5" />
+                관리 정보
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* 일반 관리 */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-body1 flex items-center gap-2">
+                    <User className="h-4 w-4 text-primary" />
+                    일반 관리
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">관리방식</span>
+                      <span className={getApiData().code_mgr ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().code_mgr || '정보없음'}
+                      </span>
                     </div>
-                  </div>
-
-                  {/* 특수 관리 */}
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-body1 flex items-center gap-2">
-                      <Shield className="h-4 w-4 text-primary" />
-                      특수 관리
-                    </h4>
-                    <div className="space-y-2">
-                      {getApiData().code_sec && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">경비관리</span>
-                          <span className="font-semibold">{getApiData().code_sec}</span>
-                        </div>
-                      )}
-                      {getApiData().code_clean && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">청소관리</span>
-                          <span className="font-semibold">{getApiData().code_clean}</span>
-                        </div>
-                      )}
-                      {getApiData().code_disinf && (
-                        <div className="flex justify-between text-body2">
-                          <span className="text-muted-foreground">소독관리</span>
-                          <span className="font-semibold">{getApiData().code_disinf}</span>
-                        </div>
-                      )}
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">관리인원</span>
+                      <span className={getApiData().kapt_mgr_cnt ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kapt_mgr_cnt ? `${formatNumber(getApiData().kapt_mgr_cnt)}명` : '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">관리업체</span>
+                      <span className={getApiData().kapt_ccompany ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().kapt_ccompany || '정보없음'}
+                      </span>
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+
+                {/* 특수 관리 */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-body1 flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-primary" />
+                    특수 관리
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">경비관리</span>
+                      <span className={getApiData().code_sec ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().code_sec || '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">청소관리</span>
+                      <span className={getApiData().code_clean ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().code_clean || '정보없음'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-body2">
+                      <span className="text-muted-foreground">소독관리</span>
+                      <span className={getApiData().code_disinf ? "font-semibold" : "text-muted-foreground"}>
+                        {getApiData().code_disinf || '정보없음'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Facilities - 기존 편의시설 그룹핑 로직 유지 */}
           <Card>
@@ -1197,166 +1375,6 @@ export default function ApartmentDetailPage() {
             </Card>
           )}
 
-          {/* Enhanced Management Fee Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                💰 연간 관리비 정보
-                <Badge variant="secondary" className="ml-auto">
-                  {yearlyManagementData?.year || new Date().getFullYear() - 1}년
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoadingYearlyFee ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-                  <p className="text-body2 text-muted-foreground">연간 관리비 정보를 불러오는 중...</p>
-                </div>
-              ) : yearlyManagementData && yearlyManagementData.monthlyData ? (
-                <div className="space-y-6">
-                  {/* 연간 평균 요약 */}
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4">
-                    <h4 className="font-semibold text-body1 mb-3 flex items-center gap-2">
-                      📊 {yearlyManagementData.year}년 평균 관리비
-                      <span className="text-body2 text-muted-foreground">({yearlyManagementData.dataCount}개월 데이터)</span>
-                    </h4>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="text-center">
-                        <div className="text-sm text-muted-foreground mb-1">공용관리비</div>
-                        <div className="text-xl font-bold text-blue-600">
-                          {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.common || 0)}원
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-sm text-muted-foreground mb-1">개별사용료</div>
-                        <div className="text-xl font-bold text-green-600">
-                          {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.individual || 0)}원
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-sm text-muted-foreground mb-1">총 관리비</div>
-                        <div className="text-2xl font-bold text-purple-600">
-                          {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.total || 0)}원
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 월별 데이터 표 */}
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-body1 flex items-center gap-2">
-                      📅 월별 관리비 현황
-                      <span className="text-body2 text-muted-foreground">(세대당 월평균)</span>
-                    </h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">월</th>
-                            <th className="text-right p-2 text-blue-600">공용관리비</th>
-                            <th className="text-right p-2 text-green-600">개별사용료</th>
-                            <th className="text-right p-2 text-purple-600 font-bold">합계</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {yearlyManagementData?.monthlyData?.map((monthData: any, index: number) => (
-                            <tr key={index} className="border-b hover:bg-muted/30">
-                              <td className="p-2 font-semibold">{monthData?.month}월</td>
-                              <td className="p-2 text-right text-blue-600">
-                                {formatNumber(monthData?.perHouseholdFee?.common || 0)}원
-                              </td>
-                              <td className="p-2 text-right text-green-600">
-                                {formatNumber(monthData?.perHouseholdFee?.individual || 0)}원
-                              </td>
-                              <td className="p-2 text-right font-bold text-purple-600">
-                                {formatNumber(monthData?.perHouseholdFee?.total || 0)}원
-                              </td>
-                            </tr>
-                          )) || []}
-                          {/* 평균 행 */}
-                          <tr className="border-t-2 bg-muted/20 font-bold">
-                            <td className="p-2">평균</td>
-                            <td className="p-2 text-right text-blue-600">
-                              {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.common || 0)}원
-                            </td>
-                            <td className="p-2 text-right text-green-600">
-                              {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.individual || 0)}원
-                            </td>
-                            <td className="p-2 text-right text-purple-600">
-                              {formatNumber(yearlyManagementData?.yearlyAverage?.perHouseholdFee?.total || 0)}원
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* 간단한 차트 표시 */}
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-body1">📈 월별 추이</h4>
-                    <div className="space-y-2">
-                      {yearlyManagementData?.monthlyData?.map((monthData: any, index: number) => {
-                        const maxTotal = Math.max(...(yearlyManagementData?.monthlyData?.map((d: any) => d?.perHouseholdFee?.total || 0) || [0]));
-                        const totalAmount = monthData?.perHouseholdFee?.total || 0;
-                        const commonAmount = monthData?.perHouseholdFee?.common || 0;
-                        const totalWidth = maxTotal > 0 ? (totalAmount / maxTotal) * 100 : 0;
-                        const commonWidth = totalAmount > 0 ? (commonAmount / totalAmount) * totalWidth : 0;
-                        const individualWidth = totalWidth - commonWidth;
-                        
-                        return (
-                          <div key={index} className="flex items-center gap-2">
-                            <div className="w-8 text-xs text-right font-medium">{monthData?.month}월</div>
-                            <div className="flex-1 h-8 bg-muted rounded-lg overflow-hidden flex">
-                              <div 
-                                className="bg-blue-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                                style={{ width: `${commonWidth}%` }}
-                                title={`공용: ${formatNumber(commonAmount)}원`}
-                              >
-                                {commonWidth > 15 ? `${formatNumber(commonAmount)}` : ''}
-                              </div>
-                              <div 
-                                className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                                style={{ width: `${individualWidth}%` }}
-                                title={`개별: ${formatNumber((monthData?.perHouseholdFee?.individual || 0))}원`}
-                              >
-                                {individualWidth > 15 ? `${formatNumber((monthData?.perHouseholdFee?.individual || 0))}` : ''}
-                              </div>
-                            </div>
-                            <div className="w-20 text-xs text-right font-semibold">
-                              {formatNumber(totalAmount)}원
-                            </div>
-                          </div>
-                        );
-                      }) || []}
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground justify-center">
-                      <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 bg-blue-500 rounded"></div>
-                        <span>공용관리비</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 bg-green-500 rounded"></div>
-                        <span>개별사용료</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-center text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
-                    💡 실제 세대별 관리비는 평형, 층수, 사용량에 따라 달라질 수 있습니다<br/>
-                    📅 데이터 기준: {yearlyManagementData.year}년 ({yearlyManagementData.dataCount}개월)
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 space-y-2">
-                  <div className="text-muted-foreground">
-                    연간 관리비 정보를 불러올 수 없습니다.
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Real Transaction Price Information */}
           <Card>
             <CardHeader>
@@ -1531,48 +1549,46 @@ export default function ApartmentDetailPage() {
               <CardTitle>연락처 정보</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {getApiData().kapt_tel && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-primary" />
-                    <span className="text-body2">관리사무소</span>
-                  </div>
-                  <p className="font-semibold text-h6">{getApiData().kapt_tel}</p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-primary" />
+                  <span className="text-body2">관리사무소</span>
                 </div>
-              )}
-              
-              {getApiData().kapt_fax && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-primary" />
-                      <span className="text-body2">팩스</span>
-                    </div>
-                    <p className="text-body2">{getApiData().kapt_fax}</p>
-                  </div>
-                </>
-              )}
+                <p className={getApiData().kapt_tel ? "font-semibold text-h6" : "text-body2 text-muted-foreground"}>
+                  {getApiData().kapt_tel || '정보없음'}
+                </p>
+              </div>
 
-              {getApiData().kapt_url && getApiData().kapt_url.trim() && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Eye className="h-4 w-4 text-primary" />
-                      <span className="text-body2">홈페이지</span>
-                    </div>
-                    <a 
-                      href={getApiData().kapt_url.startsWith('http') ? getApiData().kapt_url : `http://${getApiData().kapt_url}`} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-body2 text-primary hover:underline"
-                    >
-                      {getApiData().kapt_url}
-                    </a>
-                  </div>
-                </>
-              )}
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-primary" />
+                  <span className="text-body2">팩스</span>
+                </div>
+                <p className={getApiData().kapt_fax ? "text-body2" : "text-body2 text-muted-foreground"}>
+                  {getApiData().kapt_fax || '정보없음'}
+                </p>
+              </div>
+
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Eye className="h-4 w-4 text-primary" />
+                  <span className="text-body2">홈페이지</span>
+                </div>
+                {getApiData().kapt_url && getApiData().kapt_url.trim() ? (
+                  <a
+                    href={getApiData().kapt_url.startsWith('http') ? getApiData().kapt_url : `http://${getApiData().kapt_url}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-body2 text-primary hover:underline"
+                  >
+                    {getApiData().kapt_url}
+                  </a>
+                ) : (
+                  <p className="text-body2 text-muted-foreground">정보없음</p>
+                )}
+              </div>
 
               <Button variant="cta" className="w-full">
                 상담 신청하기
@@ -1586,30 +1602,18 @@ export default function ApartmentDetailPage() {
               <CardTitle>건설회사 정보</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {getApiData().kapt_bcompany && (
-                <div>
-                  <div className="text-body2 text-muted-foreground mb-1">시공사</div>
-                  <div className="font-semibold text-h6">{getApiData().kapt_bcompany}</div>
-                </div>
-              )}
-              {getApiData().kapt_acompany && (
-                <div>
-                  <div className="text-body2 text-muted-foreground mb-1">시행사</div>
-                  <div className="font-semibold">{getApiData().kapt_acompany}</div>
-                </div>
-              )}
               <div>
-                <div className="text-body2 text-muted-foreground mb-1">지역</div>
-                <div>{apartment.region} {apartment.subRegion}</div>
-              </div>
-              {getApiData().use_yn && (
-                <div>
-                  <div className="text-body2 text-muted-foreground mb-1">사용여부</div>
-                  <Badge variant={getApiData().use_yn === 'Y' ? 'default' : 'secondary'}>
-                    {getApiData().use_yn === 'Y' ? '사용중' : '미사용'}
-                  </Badge>
+                <div className="text-body2 text-muted-foreground mb-1">시공사</div>
+                <div className={getApiData().kapt_bcompany ? "font-semibold text-h6" : "text-body2 text-muted-foreground"}>
+                  {getApiData().kapt_bcompany || '정보없음'}
                 </div>
-              )}
+              </div>
+              <div>
+                <div className="text-body2 text-muted-foreground mb-1">시행사</div>
+                <div className={getApiData().kapt_acompany ? "font-semibold" : "text-body2 text-muted-foreground"}>
+                  {getApiData().kapt_acompany || '정보없음'}
+                </div>
+              </div>
             </CardContent>
           </Card>
 
