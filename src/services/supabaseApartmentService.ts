@@ -631,23 +631,28 @@ class SupabaseApartmentService {
   async getApartmentById(kaptCode: string): Promise<IntegratedApartmentData | null> {
     try {
       // 1차: apartment_complexes 테이블에서 조회 (상세 정보)
-      let { data, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('apartment_complexes')
         .select('*')
         .eq('kapt_code', kaptCode)
-        .single();
+        .maybeSingle(); // single() 대신 maybeSingle() 사용 (결과 없을 때 에러 안 냄)
 
       // apartment_complexes 테이블에 모든 데이터가 있으므로 2차 조회 불필요
 
-      if (error || !data) {
+      if (error) {
         console.error('아파트 상세 조회 오류:', error);
+        return null;
+      }
+
+      if (!data) {
+        console.log(`아파트를 찾을 수 없습니다: ${kaptCode}`);
         return null;
       }
 
       const convertedData = this.convertToIntegratedData(data);
       // 원시 데이터를 convertedData에 추가 (API 필드 접근용)
       (convertedData as any).rawData = data;
-      
+
       return convertedData;
     } catch (error) {
       console.error('아파트 상세 정보 조회 실패:', error);
