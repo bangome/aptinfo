@@ -15,6 +15,16 @@ interface ApartmentListItemProps {
   isCompared?: boolean;
 }
 
+// 가격 포맷 함수 (억 단위 표시)
+function formatPriceInEok(priceInManwon: number): string {
+  if (priceInManwon >= 10000) {
+    const eok = priceInManwon / 10000;
+    // 소수점 한자리까지 표시하되, .0이면 생략
+    return eok % 1 === 0 ? `${eok}억원` : `${eok.toFixed(1)}억원`;
+  }
+  return `${formatNumber(priceInManwon)}만원`;
+}
+
 export function ApartmentListItem({
   apartment,
   onBookmark,
@@ -86,7 +96,7 @@ export function ApartmentListItem({
                   <div className="text-body2">
                     <span className="text-muted-foreground">매매</span>{' '}
                     <span className="font-medium text-primary">
-                      {formatNumber(priceData.summary.trade.average)}만
+                      {formatPriceInEok(priceData.summary.trade.average)}
                     </span>
                   </div>
                 )}
@@ -94,7 +104,7 @@ export function ApartmentListItem({
                   <div className="text-body2">
                     <span className="text-muted-foreground">전세</span>{' '}
                     <span className="font-medium text-secondary">
-                      {formatNumber(priceData.summary.rentDeposit.average)}만
+                      {formatPriceInEok(priceData.summary.rentDeposit.average)}
                     </span>
                   </div>
                 )}
