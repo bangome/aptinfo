@@ -20,11 +20,23 @@ interface PriceRangeDisplayProps {
 }
 
 /**
+ * 가격 포맷 함수 (억 단위 표시)
+ */
+function formatPriceInEok(priceInManwon: number): string {
+  if (priceInManwon >= 10000) {
+    const eok = priceInManwon / 10000;
+    // 소수점 한자리까지 표시하되, .0이면 생략
+    return eok % 1 === 0 ? `${eok}억원` : `${eok.toFixed(1)}억원`;
+  }
+  return `${formatNumber(priceInManwon)}만원`;
+}
+
+/**
  * 가격 변동 트렌드 아이콘 표시
  */
 function TrendIcon({ trend }: { trend: 'up' | 'down' | 'stable' }) {
   const iconProps = { className: 'h-3 w-3', 'aria-hidden': true };
-  
+
   switch (trend) {
     case 'up':
       return <TrendingUp {...iconProps} className="h-3 w-3 text-red-500" />;
@@ -40,9 +52,9 @@ function TrendIcon({ trend }: { trend: 'up' | 'down' | 'stable' }) {
  */
 function formatPriceRangeText(min: number, max: number, count: number): string {
   if (min === max) {
-    return `${formatNumber(min)}만원 (${count}건)`;
+    return `${formatPriceInEok(min)} (${count}건)`;
   }
-  return `${formatNumber(min)}만원 ~ ${formatNumber(max)}만원 (${count}건)`;
+  return `${formatPriceInEok(min)} ~ ${formatPriceInEok(max)} (${count}건)`;
 }
 
 /**
@@ -218,7 +230,7 @@ export function PriceRangeDisplay({
                 {formatPriceRangeText(summary.trade.min, summary.trade.max, summary.trade.count)}
               </div>
               <div className="text-body2 text-muted-foreground mt-1">
-                평균 {formatNumber(summary.trade.average)}만원
+                평균 {formatPriceInEok(summary.trade.average)}
               </div>
             </div>
           </div>
@@ -247,7 +259,7 @@ export function PriceRangeDisplay({
                 {formatPriceRangeText(summary.rentDeposit.min, summary.rentDeposit.max, summary.rentDeposit.count)}
               </div>
               <div className="text-body2 text-muted-foreground mt-1">
-                평균 {formatNumber(summary.rentDeposit.average)}만원
+                평균 {formatPriceInEok(summary.rentDeposit.average)}
               </div>
             </div>
           </div>
@@ -276,7 +288,7 @@ export function PriceRangeDisplay({
                 {formatPriceRangeText(summary.rentMonthly.min, summary.rentMonthly.max, summary.rentMonthly.count)}
               </div>
               <div className="text-body2 text-muted-foreground mt-1">
-                평균 {formatNumber(summary.rentMonthly.average)}만원
+                평균 {formatPriceInEok(summary.rentMonthly.average)}
               </div>
             </div>
           </div>
@@ -320,11 +332,11 @@ export function PriceRangeBadge({
   }
 
   return (
-    <Badge 
+    <Badge
       variant={type === 'trade' ? 'default' : 'secondary'}
       className="text-xs font-medium"
     >
-      {formatNumber(data.min)}만원 ~ {formatNumber(data.max)}만원
+      {formatPriceInEok(data.min)} ~ {formatPriceInEok(data.max)}
     </Badge>
   );
 }
