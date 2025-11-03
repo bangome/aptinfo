@@ -1,11 +1,16 @@
 /**
  * 자동 매칭 API
- * 거래 위치(읍면동+번지)가 단지 주소에 포함되는지 확인하여 자동 매칭
+ * 단지명과 관계없이 거래 위치(읍면동+번지)가 단지 주소에 포함되는지 확인하여 자동 매칭
+ *
+ * 매칭 전략:
+ * 1. 같은 시군구(region_code) 내 모든 단지를 후보로 조회 (legal_dong 불일치 허용)
+ * 2. 단지의 여러 주소 필드(address, road_address, kapt_addr, jibun)에서 위치 패턴 검색
  *
  * 매칭 우선순위:
- * 1. 단지 주소에 "읍면동 번지" 패턴 포함 = 100점 (확정 매칭)
- *    - 예: 거래 "숭의동 462" → 단지 주소 "서울시 용산구 숭의동 462-1~462-50"
- * 2. 위치 패턴 미포함 시 기존 점수 계산:
+ * 1. 단지 주소에 "읍면동 번지" 패턴 포함 = 100점 (확정 매칭, 단지명 무관)
+ *    - 예: 거래 "만수동 844-1" → 단지 주소 "인천광역시 남동구 만수동 844-1"
+ *    - legal_dong이 다르더라도 (예: "만수동" vs "만수1동") 주소에 포함되면 매칭
+ * 2. 위치 패턴 미포함 시 유사도 점수 계산:
  *    - 읍면동 일치: 40점
  *    - 번지 유사도: 50점 (본번+부번 일치)
  *    - 단지명 유사도: 10점
@@ -16,17 +21,25 @@ import { createClient } from '@/lib/supabase/server';
 import { normalizeError, logError } from '@/lib/error-handling';
 
 /**
- * 거래 위치(읍면동+번지)가 단지 주소에 포함되는지 확인
+ * 거래 위치(읍면동+번지)가 단지의 여러 주소 필드에 포함되는지 확인
  * 예: "숭의동 462"가 "서울시 용산구 숭의동 462-1~462-50"에 포함되는지
  */
-function isLocationInAddress(legalDong: string, jibun: string, address: string): boolean {
-  if (!legalDong || !jibun || !address) return false;
+function isLocationInComplex(legalDong: string, jibun: string, complex: any): boolean {
+  if (!legalDong || !jibun) return false;
 
   // 읍면동과 번지를 조합한 위치 패턴
   const locationPattern = `${legalDong} ${jibun}`;
 
-  // 주소에 해당 패턴이 포함되는지 확인
-  return address.includes(locationPattern);
+  // 단지의 여러 주소 필드를 모두 확인
+  const addressFields = [
+    complex.address,
+    complex.road_address,
+    complex.kapt_addr,
+    complex.jibun
+  ].filter(Boolean); // null/undefined 제외
+
+  // 어느 하나라도 위치 패턴을 포함하면 true
+  return addressFields.some(addr => addr.includes(locationPattern));
 }
 
 /**
@@ -173,12 +186,13 @@ export async function POST(request: NextRequest) {
         try {
           batchMatchAttempts++;
 
-          // 3-1. 같은 읍면동의 단지 조회
+          // 3-1. 같은 지역코드(시군구)의 모든 단지 조회
+          // 위치 패턴(읍면동+번지)이 주소에 포함되는지 확인하기 위해 넓게 검색
           const { data: candidateComplexes } = await supabase
             .from('apartment_complexes')
             .select('*')
-            .ilike('legal_dong', `%${transaction.legal_dong}%`)
-            .limit(50);
+            .eq('region_code', transaction.region_code)
+            .limit(500); // 같은 시군구 내 모든 단지 검토
 
           if (!candidateComplexes || candidateComplexes.length === 0) {
             batchNoCandidates++;
@@ -189,15 +203,15 @@ export async function POST(request: NextRequest) {
           const scoredComplexes = candidateComplexes.map(complex => {
             let score = 0;
 
-            // ✨ 우선 순위 1: "읍면동 번지" 패턴이 단지 주소에 포함되는지 확인
-            const complexAddress = complex.address || complex.jibun || '';
-            if (isLocationInAddress(transaction.legal_dong, transaction.jibun, complexAddress)) {
-              // 위치 패턴이 주소에 포함되면 100% 확정 매칭
+            // ✨ 우선 순위 1: "읍면동 번지" 패턴이 단지의 여러 주소 필드에 포함되는지 확인
+            // 단지명과 관계없이 위치가 주소에 포함되면 100% 확정 매칭
+            if (isLocationInComplex(transaction.legal_dong, transaction.jibun, complex)) {
               return {
                 complex,
                 score: 100,
                 matchType: 'location_pattern_match',
-                locationPattern: `${transaction.legal_dong} ${transaction.jibun}`
+                locationPattern: `${transaction.legal_dong} ${transaction.jibun}`,
+                matchedAddress: complex.address || complex.kapt_addr || complex.jibun
               };
             }
 
