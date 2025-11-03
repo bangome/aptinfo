@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     const { data: targetTransaction, error: fetchError } = await supabase
       .from(tableName)
-      .select('apartment_name, region_code, legal_dong')
+      .select('apartment_name, region_code, legal_dong, jibun')
       .eq('id', transactionId)
       .single();
 
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
 
-    // 동일한 아파트명 + 지역코드 + 법정동을 가진 모든 미매칭 거래 업데이트
+    // 동일한 아파트명 + 지역코드 + 법정동 + 번지를 가진 모든 미매칭 거래 업데이트
     const { data: updatedTransactions, error: updateError, count } = await supabase
       .from(tableName)
       .update({
@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
       .eq('apartment_name', targetTransaction.apartment_name)
       .eq('region_code', targetTransaction.region_code)
       .eq('legal_dong', targetTransaction.legal_dong)
+      .eq('jibun', targetTransaction.jibun)
       .select();
 
     if (updateError) {

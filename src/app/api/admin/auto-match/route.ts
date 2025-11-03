@@ -203,14 +203,21 @@ export async function POST(request: NextRequest) {
               ? 'apartment_trade_transactions'
               : 'apartment_rent_transactions';
 
-            const { error: updateError } = await supabase
+            // 동일한 위치(아파트명+지역코드+법정동+번지)의 모든 미매칭 거래를 한 번에 매칭
+            const { error: updateError, count } = await supabase
               .from(updateTable)
               .update({ complex_id: bestMatch.complex.id })
-              .eq('id', transaction.id);
+              .is('complex_id', null) // 미매칭 거래만
+              .eq('apartment_name', transaction.apartment_name)
+              .eq('region_code', transaction.region_code)
+              .eq('legal_dong', transaction.legal_dong)
+              .eq('jibun', transaction.jibun)
+              .select('id', { count: 'exact', head: false });
 
             if (updateError) {
               errors.push(`거래 ${transaction.id} 업데이트 실패: ${updateError.message}`);
             } else {
+              const matchedCount = count || 1;
               matchedResults.push({
                 transactionId: transaction.id,
                 transactionType: transaction.type,
@@ -220,7 +227,8 @@ export async function POST(request: NextRequest) {
                 score: Math.round(bestMatch.score),
                 legalDong: transaction.legal_dong,
                 jibun: transaction.jibun,
-                batch: batchCount
+                batch: batchCount,
+                batchMatchedCount: matchedCount // 같은 조건으로 매칭된 거래 수
               });
             }
           }
