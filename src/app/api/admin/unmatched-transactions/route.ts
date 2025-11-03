@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
         .from('apartment_trade_transactions')
         .select('*', { count: 'exact' })
         .is('complex_id', null)
+        .order('match_failed', { ascending: true }) // false(매칭 가능) 먼저, true(매칭 실패) 나중
         .order('deal_date', { ascending: false });
 
       if (regionCode) {
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
         .from('apartment_rent_transactions')
         .select('*', { count: 'exact' })
         .is('complex_id', null)
+        .order('match_failed', { ascending: true }) // false(매칭 가능) 먼저, true(매칭 실패) 나중
         .order('deal_date', { ascending: false });
 
       if (regionCode) {
@@ -68,10 +70,15 @@ export async function GET(request: NextRequest) {
       totalCount += rentCount || 0;
     }
 
-    // 거래일자 기준으로 정렬
-    unmatchedTransactions.sort((a, b) =>
-      new Date(b.deal_date).getTime() - new Date(a.deal_date).getTime()
-    );
+    // match_failed 우선, 그 다음 거래일자 기준으로 정렬
+    unmatchedTransactions.sort((a, b) => {
+      // match_failed가 false인 것을 먼저 (매칭 가능한 것 우선)
+      if (a.match_failed !== b.match_failed) {
+        return a.match_failed ? 1 : -1;
+      }
+      // match_failed가 같으면 거래일자로 정렬
+      return new Date(b.deal_date).getTime() - new Date(a.deal_date).getTime();
+    });
 
     // limit 적용
     if (transactionType === 'all') {

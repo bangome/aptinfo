@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Link2, MapPin, Calendar, Home, DollarSign, Loader2, Check } from 'lucide-react';
+import { Search, Link2, MapPin, Calendar, Home, DollarSign, Loader2, Check, X } from 'lucide-react';
 
 interface Transaction {
   id: string;
@@ -283,6 +283,46 @@ export default function ManualMatchingPage() {
     }
   };
 
+  // 매칭 실패 표시
+  const handleMarkFailed = async (transaction: Transaction) => {
+    try {
+      const response = await fetch('/api/admin/mark-match-failed', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transactionId: transaction.id,
+          transactionType: transaction.transaction_type,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast({
+          title: '매칭 실패 처리 완료',
+          description: '해당 거래가 목록 뒤로 이동되었습니다.',
+        });
+
+        // 목록 새로고침
+        fetchUnmatchedTransactions();
+      } else {
+        toast({
+          variant: 'destructive',
+          title: '처리 실패',
+          description: result.error || '매칭 실패 표시에 실패했습니다.'
+        });
+      }
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: '오류 발생',
+        description: '매칭 실패 처리 중 오류가 발생했습니다.'
+      });
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div>
@@ -446,14 +486,25 @@ export default function ManualMatchingPage() {
                         </div>
                       </div>
 
-                      <Button
-                        onClick={() => openMatchDialog(transaction)}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <Link2 className="h-4 w-4 mr-2" />
-                        매칭
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => openMatchDialog(transaction)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          <Link2 className="h-4 w-4 mr-2" />
+                          매칭
+                        </Button>
+                        <Button
+                          onClick={() => handleMarkFailed(transaction)}
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          매칭 실패
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
