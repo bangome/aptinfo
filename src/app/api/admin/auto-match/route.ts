@@ -1,6 +1,11 @@
 /**
  * 자동 매칭 API
- * 읍면동이 같고 번지수가 유사한 거래를 자동으로 단지와 매칭
+ * 읍면동과 번지 일치를 기준으로 거래를 자동으로 단지와 매칭
+ *
+ * 매칭 점수 체계 (100점 만점):
+ * - 읍면동 완전 일치: 40점
+ * - 번지수 본번+부번 일치: 50점 (본번만 일치: 40점, 인접: 20~30점)
+ * - 단지명 유사도: 10점 (보조 검증)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -8,8 +13,8 @@ import { createClient } from '@/lib/supabase/server';
 import { normalizeError, logError } from '@/lib/error-handling';
 
 /**
- * 번지수 유사도 계산
- * "123-45" 형식의 번지를 비교
+ * 번지수 일치도 계산
+ * "123-45" 형식의 번지를 비교하여 정확한 일치를 우선시
  */
 function calculateJibunSimilarity(jibun1: string, jibun2: string): number {
   if (!jibun1 || !jibun2) return 0;
@@ -20,21 +25,33 @@ function calculateJibunSimilarity(jibun1: string, jibun2: string): number {
 
   if (!nums1 || !nums2) return 0;
 
-  // 본번이 같으면 높은 점수
-  if (nums1[0] === nums2[0]) {
-    // 부번도 같으면 100점
-    if (nums1[1] && nums2[1] && nums1[1] === nums2[1]) {
+  const bonbun1 = nums1[0];
+  const bubun1 = nums1[1];
+  const bonbun2 = nums2[0];
+  const bubun2 = nums2[1];
+
+  // 본번이 같은 경우
+  if (bonbun1 === bonbun2) {
+    // 본번+부번 완전 일치 = 100점 (확정)
+    if (bubun1 && bubun2 && bubun1 === bubun2) {
       return 100;
     }
-    // 본번만 같으면 80점
-    return 80;
+    // 부번이 하나만 있거나 둘 다 없는 경우 = 90점 (높은 확률)
+    if (!bubun1 || !bubun2) {
+      return 90;
+    }
+    // 본번은 같지만 부번이 다른 경우 = 70점 (같은 블록)
+    return 70;
   }
 
-  // 본번이 인접하면 50점 (예: 123과 124)
-  if (nums1[0] && nums2[0]) {
-    const diff = Math.abs(parseInt(nums1[0]) - parseInt(nums2[0]));
-    if (diff <= 2) {
-      return 50 - (diff * 10);
+  // 본번이 인접한 경우 (±1) = 40~50점
+  if (bonbun1 && bonbun2) {
+    const diff = Math.abs(parseInt(bonbun1) - parseInt(bonbun2));
+    if (diff === 1) {
+      return 50; // 바로 옆 번지
+    }
+    if (diff === 2) {
+      return 35; // 2칸 차이
     }
   }
 
@@ -141,34 +158,38 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // 3-2. 각 단지에 대해 유사도 계산
+          // 3-2. 각 단지에 대해 읍면동+번지 기준으로 유사도 계산
           const scoredComplexes = candidateComplexes.map(complex => {
             let score = 0;
 
-            // 읍면동 완전 일치 (30점)
+            // 읍면동 일치도 (40점) - 가장 기본적인 위치 정보
             if (complex.legal_dong === transaction.legal_dong) {
-              score += 30;
+              score += 40; // 완전 일치
             } else if (complex.legal_dong?.includes(transaction.legal_dong)) {
-              score += 20;
+              score += 20; // 부분 일치
+            } else if (transaction.legal_dong?.includes(complex.legal_dong || '')) {
+              score += 15; // 역방향 부분 일치
             }
 
-            // 번지수 유사도 (40점)
+            // 번지수 일치도 (50점) - 핵심 매칭 기준
             const jibunScore = calculateJibunSimilarity(
               transaction.jibun,
               complex.jibun || complex.address?.match(/\d+-?\d*/)?.[0] || ''
             );
-            score += (jibunScore / 100) * 40;
+            score += (jibunScore / 100) * 50;
 
-            // 단지명 유사도 (30점)
+            // 단지명 유사도 (10점) - 보조 검증용
             const nameScore = calculateNameSimilarity(
               transaction.apartment_name,
               complex.name
             );
-            score += (nameScore / 100) * 30;
+            score += (nameScore / 100) * 10;
 
             return {
               complex,
-              score
+              score,
+              jibunScore, // 디버깅용
+              nameScore   // 디버깅용
             };
           });
 

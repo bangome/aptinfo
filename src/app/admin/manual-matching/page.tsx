@@ -341,9 +341,10 @@ export default function ManualMatchingPage() {
 
           <div className="text-xs text-muted-foreground bg-blue-50 p-3 rounded-lg">
             <p className="font-semibold mb-1">💡 자동 매칭 정보</p>
-            <p>• 읍면동이 같고 번지수가 유사한 거래를 자동으로 단지와 연결합니다.</p>
-            <p>• 유사도 70점 이상인 경우에만 자동 매칭됩니다.</p>
-            <p>• 한 번에 최대 10,000건까지 배치 처리합니다 (200건 × 50배치).</p>
+            <p>• <strong>읍면동과 번지 일치를 기준</strong>으로 거래를 자동으로 단지와 연결합니다.</p>
+            <p>• 매칭 점수: 읍면동 일치 40점 + 번지 일치 50점 + 단지명 유사도 10점</p>
+            <p>• 유사도 70점 이상만 자동 매칭 (읍면동 같고 본번 일치하면 85점 이상)</p>
+            <p>• 한 번에 최대 10,000건까지 배치 처리 (200건 × 50배치)</p>
           </div>
 
           {autoMatchResults && (
