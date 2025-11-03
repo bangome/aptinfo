@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
     while (batchCount < maxBatches) {
       batchCount++;
 
-      // 1. 미매칭 매매 거래 조회 (일관된 순서로 처리하기 위해 created_at 정렬)
+      // 1. 미매칭 매매 거래 조회 (일관된 순서로 처리하기 위해 created_at + id 정렬)
       const { data: unmatchedTrades } = await supabase
         .from('apartment_trade_transactions')
         .select('*')
@@ -149,9 +149,10 @@ export async function POST(request: NextRequest) {
         .not('legal_dong', 'is', null)
         .not('jibun', 'is', null)
         .order('created_at', { ascending: true })
+        .order('id', { ascending: true })  // ID로 2차 정렬 (안정적인 순서 보장)
         .limit(batchSize / 2);
 
-      // 2. 미매칭 전월세 거래 조회 (일관된 순서로 처리하기 위해 created_at 정렬)
+      // 2. 미매칭 전월세 거래 조회 (일관된 순서로 처리하기 위해 created_at + id 정렬)
       const { data: unmatchedRents } = await supabase
         .from('apartment_rent_transactions')
         .select('*')
@@ -160,6 +161,7 @@ export async function POST(request: NextRequest) {
         .not('legal_dong', 'is', null)
         .not('jibun', 'is', null)
         .order('created_at', { ascending: true })
+        .order('id', { ascending: true })  // ID로 2차 정렬 (안정적인 순서 보장)
         .limit(batchSize / 2);
 
       const unmatchedTransactions = [
@@ -174,6 +176,18 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`배치 ${batchCount}: ${unmatchedTransactions.length}건 처리 중...`);
+
+      // 첫 3개 거래 정보 출력 (디버깅용)
+      if (unmatchedTransactions.length > 0) {
+        console.log(`배치 ${batchCount} 샘플 거래:`, unmatchedTransactions.slice(0, 3).map(t => ({
+          id: t.id.substring(0, 8),
+          name: t.apartment_name,
+          legal_dong: t.legal_dong,
+          jibun: t.jibun,
+          region_code: t.region_code
+        })));
+      }
+
       totalProcessed += unmatchedTransactions.length;
 
       let batchMatchAttempts = 0;
@@ -185,6 +199,7 @@ export async function POST(request: NextRequest) {
       for (const transaction of unmatchedTransactions) {
         try {
           batchMatchAttempts++;
+          const isFirstInBatch = batchMatchAttempts === 1;
 
           // 3-1. 같은 지역코드(시군구)의 모든 단지 조회
           // 위치 패턴(읍면동+번지)이 주소에 포함되는지 확인하기 위해 넓게 검색
@@ -196,7 +211,14 @@ export async function POST(request: NextRequest) {
 
           if (!candidateComplexes || candidateComplexes.length === 0) {
             batchNoCandidates++;
+            if (isFirstInBatch) {
+              console.log(`배치 ${batchCount} 첫 거래: 후보 단지 없음 (region_code: ${transaction.region_code})`);
+            }
             continue;
+          }
+
+          if (isFirstInBatch) {
+            console.log(`배치 ${batchCount} 첫 거래: 후보 ${candidateComplexes.length}개 조회됨`);
           }
 
           // 3-2. 각 단지에 대해 위치 패턴 일치 여부 확인
@@ -251,6 +273,15 @@ export async function POST(request: NextRequest) {
           // 3-3. 가장 높은 유사도 찾기
           scoredComplexes.sort((a, b) => b.score - a.score);
           const bestMatch = scoredComplexes[0];
+
+          if (isFirstInBatch) {
+            console.log(`배치 ${batchCount} 첫 거래 최고 점수:`, {
+              score: bestMatch.score,
+              matchType: bestMatch.matchType,
+              complexName: bestMatch.complex.name,
+              complexAddress: bestMatch.complex.address?.substring(0, 50) || bestMatch.complex.kapt_addr?.substring(0, 50)
+            });
+          }
 
           // 3-4. 임계값 이상이면 매칭
           if (bestMatch && bestMatch.score >= threshold) {
