@@ -18,6 +18,16 @@ interface ApartmentCardProps {
   isCompared?: boolean;
 }
 
+// 가격 포맷 함수 (억 단위 표시)
+function formatPriceInEok(priceInManwon: number): string {
+  if (priceInManwon >= 10000) {
+    const eok = priceInManwon / 10000;
+    // 소수점 한자리까지 표시하되, .0이면 생략
+    return eok % 1 === 0 ? `${eok}억원` : `${eok.toFixed(1)}억원`;
+  }
+  return `${formatNumber(priceInManwon)}만원`;
+}
+
 export function ApartmentCard({
   apartment,
   onBookmark,
@@ -145,12 +155,12 @@ export function ApartmentCard({
                   <div className="text-body2 text-muted-foreground mb-1">평균 가격:</div>
                   {priceData.summary.trade && (
                     <div className="text-body2">
-                      매매 {formatNumber(priceData.summary.trade.average)}만원
+                      매매 {formatPriceInEok(priceData.summary.trade.average)}
                     </div>
                   )}
                   {priceData.summary.rentDeposit && (
                     <div className="text-body2">
-                      전세 {formatNumber(priceData.summary.rentDeposit.average)}만원
+                      전세 {formatPriceInEok(priceData.summary.rentDeposit.average)}
                     </div>
                   )}
                 </div>
