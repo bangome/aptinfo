@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Link2, MapPin, Calendar, Home, DollarSign, Loader2, Check } from 'lucide-react';
+import { Search, Link2, MapPin, Calendar, Home, DollarSign, Loader2, Check, StopCircle } from 'lucide-react';
 
 interface Transaction {
   id: string;
@@ -55,6 +55,7 @@ export default function ManualMatchingPage() {
 
   const limit = 50;
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const autoMatchAbortControllerRef = useRef<AbortController | null>(null);
 
   // 미매칭 거래 데이터 조회
   const fetchUnmatchedTransactions = useCallback(async () => {
@@ -234,6 +235,10 @@ export default function ManualMatchingPage() {
     setAutoMatching(true);
     setAutoMatchResults(null);
 
+    // AbortController 생성
+    const abortController = new AbortController();
+    autoMatchAbortControllerRef.current = abortController;
+
     try {
       const response = await fetch('/api/admin/auto-match', {
         method: 'POST',
@@ -245,6 +250,7 @@ export default function ManualMatchingPage() {
           batchSize: 200, // 한 배치당 200건
           maxBatches: 50 // 최대 50개 배치 (총 10,000건까지)
         }),
+        signal: abortController.signal, // abort signal 추가
       });
 
       const result = await response.json();
@@ -272,14 +278,32 @@ export default function ManualMatchingPage() {
           description: result.error || '자동 매칭에 실패했습니다.'
         });
       }
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: '오류 발생',
-        description: '자동 매칭 중 오류가 발생했습니다.'
-      });
+    } catch (error: any) {
+      // 사용자가 중지한 경우
+      if (error.name === 'AbortError') {
+        toast({
+          title: '자동 매칭 중지됨',
+          description: '사용자가 자동 매칭을 중지했습니다.',
+        });
+        // 중지 시에도 목록 새로고침 (일부 매칭되었을 수 있음)
+        fetchUnmatchedTransactions();
+      } else {
+        toast({
+          variant: 'destructive',
+          title: '오류 발생',
+          description: '자동 매칭 중 오류가 발생했습니다.'
+        });
+      }
     } finally {
       setAutoMatching(false);
+      autoMatchAbortControllerRef.current = null;
+    }
+  };
+
+  // 자동 매칭 중지
+  const handleStopAutoMatch = () => {
+    if (autoMatchAbortControllerRef.current) {
+      autoMatchAbortControllerRef.current.abort();
     }
   };
 
@@ -373,6 +397,17 @@ export default function ManualMatchingPage() {
                 </>
               )}
             </Button>
+
+            {autoMatching && (
+              <Button
+                onClick={handleStopAutoMatch}
+                variant="destructive"
+                className="gap-2"
+              >
+                <StopCircle className="h-4 w-4" />
+                중지
+              </Button>
+            )}
 
             <div className="flex-1" />
 
