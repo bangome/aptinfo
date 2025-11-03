@@ -215,10 +215,11 @@ export async function POST(request: NextRequest) {
 
           // 3-1. 같은 지역코드(시군구)의 모든 단지 조회
           // 위치 패턴(읍면동+번지)이 주소에 포함되는지 확인하기 위해 넓게 검색
+          // region_code 형식: 거래=5자리, 단지=10자리 → 앞 5자리로 매칭
           const { data: candidateComplexes } = await supabase
             .from('apartment_complexes')
             .select('*')
-            .eq('region_code', transaction.region_code)
+            .ilike('region_code', `${transaction.region_code}%`)  // 앞 5자리 일치
             .limit(500); // 같은 시군구 내 모든 단지 검토
 
           if (!candidateComplexes || candidateComplexes.length === 0) {
