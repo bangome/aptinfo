@@ -242,7 +242,8 @@ export default function ManualMatchingPage() {
         },
         body: JSON.stringify({
           threshold: 70, // 70점 이상만 자동 매칭
-          maxMatches: 100 // 최대 100건까지
+          batchSize: 200, // 한 배치당 200건
+          maxBatches: 50 // 최대 50개 배치 (총 10,000건까지)
         }),
       });
 
@@ -342,13 +343,13 @@ export default function ManualMatchingPage() {
             <p className="font-semibold mb-1">💡 자동 매칭 정보</p>
             <p>• 읍면동이 같고 번지수가 유사한 거래를 자동으로 단지와 연결합니다.</p>
             <p>• 유사도 70점 이상인 경우에만 자동 매칭됩니다.</p>
-            <p>• 최대 100건까지 처리합니다.</p>
+            <p>• 한 번에 최대 10,000건까지 배치 처리합니다 (200건 × 50배치).</p>
           </div>
 
           {autoMatchResults && (
             <div className="bg-green-50 p-4 rounded-lg space-y-2">
               <p className="font-semibold text-green-800">자동 매칭 결과</p>
-              <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-4 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">처리:</span>
                   <span className="ml-2 font-semibold">{autoMatchResults.totalProcessed}건</span>
@@ -360,6 +361,10 @@ export default function ManualMatchingPage() {
                 <div>
                   <span className="text-muted-foreground">실패:</span>
                   <span className="ml-2 font-semibold text-red-600">{autoMatchResults.failed}건</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">배치:</span>
+                  <span className="ml-2 font-semibold text-blue-600">{autoMatchResults.batchesProcessed}개</span>
                 </div>
               </div>
               {autoMatchResults.complexStats && autoMatchResults.complexStats.length > 0 && (

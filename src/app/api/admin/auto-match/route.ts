@@ -80,118 +80,140 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
     const body = await request.json();
-    const { threshold = 70, maxMatches = 100 } = body;
+    const { threshold = 70, batchSize = 200, maxBatches = 50 } = body;
 
     const matchedResults: any[] = [];
     const errors: string[] = [];
+    let totalProcessed = 0;
+    let batchCount = 0;
 
-    // 1. 미매칭 매매 거래 조회
-    const { data: unmatchedTrades } = await supabase
-      .from('apartment_trade_transactions')
-      .select('*')
-      .is('complex_id', null)
-      .not('apartment_name', 'is', null)
-      .not('legal_dong', 'is', null)
-      .not('jibun', 'is', null)
-      .limit(maxMatches);
+    console.log(`자동 매칭 시작 (배치 크기: ${batchSize}, 최대 배치: ${maxBatches})`);
 
-    // 2. 미매칭 전월세 거래 조회
-    const { data: unmatchedRents } = await supabase
-      .from('apartment_rent_transactions')
-      .select('*')
-      .is('complex_id', null)
-      .not('apartment_name', 'is', null)
-      .not('legal_dong', 'is', null)
-      .not('jibun', 'is', null)
-      .limit(maxMatches);
+    // 배치 반복 처리
+    while (batchCount < maxBatches) {
+      batchCount++;
 
-    const unmatchedTransactions = [
-      ...(unmatchedTrades || []).map(t => ({ ...t, type: 'trade' })),
-      ...(unmatchedRents || []).map(r => ({ ...r, type: 'rent' }))
-    ];
+      // 1. 미매칭 매매 거래 조회
+      const { data: unmatchedTrades } = await supabase
+        .from('apartment_trade_transactions')
+        .select('*')
+        .is('complex_id', null)
+        .not('apartment_name', 'is', null)
+        .not('legal_dong', 'is', null)
+        .not('jibun', 'is', null)
+        .limit(batchSize / 2);
 
-    console.log(`자동 매칭 시작: ${unmatchedTransactions.length}건의 미매칭 거래`);
+      // 2. 미매칭 전월세 거래 조회
+      const { data: unmatchedRents } = await supabase
+        .from('apartment_rent_transactions')
+        .select('*')
+        .is('complex_id', null)
+        .not('apartment_name', 'is', null)
+        .not('legal_dong', 'is', null)
+        .not('jibun', 'is', null)
+        .limit(batchSize / 2);
 
-    // 3. 각 거래에 대해 매칭 시도
-    for (const transaction of unmatchedTransactions) {
-      try {
-        // 3-1. 같은 읍면동의 단지 조회
-        const { data: candidateComplexes } = await supabase
-          .from('apartment_complexes')
-          .select('*')
-          .ilike('legal_dong', `%${transaction.legal_dong}%`)
-          .limit(50);
+      const unmatchedTransactions = [
+        ...(unmatchedTrades || []).map(t => ({ ...t, type: 'trade' })),
+        ...(unmatchedRents || []).map(r => ({ ...r, type: 'rent' }))
+      ];
 
-        if (!candidateComplexes || candidateComplexes.length === 0) {
-          continue;
-        }
-
-        // 3-2. 각 단지에 대해 유사도 계산
-        const scoredComplexes = candidateComplexes.map(complex => {
-          let score = 0;
-
-          // 읍면동 완전 일치 (30점)
-          if (complex.legal_dong === transaction.legal_dong) {
-            score += 30;
-          } else if (complex.legal_dong?.includes(transaction.legal_dong)) {
-            score += 20;
-          }
-
-          // 번지수 유사도 (40점)
-          const jibunScore = calculateJibunSimilarity(
-            transaction.jibun,
-            complex.jibun || complex.address?.match(/\d+-?\d*/)?.[0] || ''
-          );
-          score += (jibunScore / 100) * 40;
-
-          // 단지명 유사도 (30점)
-          const nameScore = calculateNameSimilarity(
-            transaction.apartment_name,
-            complex.name
-          );
-          score += (nameScore / 100) * 30;
-
-          return {
-            complex,
-            score
-          };
-        });
-
-        // 3-3. 가장 높은 유사도 찾기
-        scoredComplexes.sort((a, b) => b.score - a.score);
-        const bestMatch = scoredComplexes[0];
-
-        // 3-4. 임계값 이상이면 매칭
-        if (bestMatch && bestMatch.score >= threshold) {
-          const updateTable = transaction.type === 'trade'
-            ? 'apartment_trade_transactions'
-            : 'apartment_rent_transactions';
-
-          const { error: updateError } = await supabase
-            .from(updateTable)
-            .update({ complex_id: bestMatch.complex.id })
-            .eq('id', transaction.id);
-
-          if (updateError) {
-            errors.push(`거래 ${transaction.id} 업데이트 실패: ${updateError.message}`);
-          } else {
-            matchedResults.push({
-              transactionId: transaction.id,
-              transactionType: transaction.type,
-              apartmentName: transaction.apartment_name,
-              complexId: bestMatch.complex.id,
-              complexName: bestMatch.complex.name,
-              score: Math.round(bestMatch.score),
-              legalDong: transaction.legal_dong,
-              jibun: transaction.jibun
-            });
-          }
-        }
-
-      } catch (error) {
-        console.error(`거래 ${transaction.id} 매칭 실패:`, error);
-        errors.push(`거래 ${transaction.id} 처리 중 오류`);
+      // 미매칭 거래가 없으면 종료
+      if (unmatchedTransactions.length === 0) {
+        console.log(`배치 ${batchCount}: 더 이상 미매칭 거래가 없습니다.`);
+        break;
       }
+
+      console.log(`배치 ${batchCount}: ${unmatchedTransactions.length}건 처리 중...`);
+      totalProcessed += unmatchedTransactions.length;
+
+      // 3. 각 거래에 대해 매칭 시도
+      for (const transaction of unmatchedTransactions) {
+        try {
+          // 3-1. 같은 읍면동의 단지 조회
+          const { data: candidateComplexes } = await supabase
+            .from('apartment_complexes')
+            .select('*')
+            .ilike('legal_dong', `%${transaction.legal_dong}%`)
+            .limit(50);
+
+          if (!candidateComplexes || candidateComplexes.length === 0) {
+            continue;
+          }
+
+          // 3-2. 각 단지에 대해 유사도 계산
+          const scoredComplexes = candidateComplexes.map(complex => {
+            let score = 0;
+
+            // 읍면동 완전 일치 (30점)
+            if (complex.legal_dong === transaction.legal_dong) {
+              score += 30;
+            } else if (complex.legal_dong?.includes(transaction.legal_dong)) {
+              score += 20;
+            }
+
+            // 번지수 유사도 (40점)
+            const jibunScore = calculateJibunSimilarity(
+              transaction.jibun,
+              complex.jibun || complex.address?.match(/\d+-?\d*/)?.[0] || ''
+            );
+            score += (jibunScore / 100) * 40;
+
+            // 단지명 유사도 (30점)
+            const nameScore = calculateNameSimilarity(
+              transaction.apartment_name,
+              complex.name
+            );
+            score += (nameScore / 100) * 30;
+
+            return {
+              complex,
+              score
+            };
+          });
+
+          // 3-3. 가장 높은 유사도 찾기
+          scoredComplexes.sort((a, b) => b.score - a.score);
+          const bestMatch = scoredComplexes[0];
+
+          // 3-4. 임계값 이상이면 매칭
+          if (bestMatch && bestMatch.score >= threshold) {
+            const updateTable = transaction.type === 'trade'
+              ? 'apartment_trade_transactions'
+              : 'apartment_rent_transactions';
+
+            const { error: updateError } = await supabase
+              .from(updateTable)
+              .update({ complex_id: bestMatch.complex.id })
+              .eq('id', transaction.id);
+
+            if (updateError) {
+              errors.push(`거래 ${transaction.id} 업데이트 실패: ${updateError.message}`);
+            } else {
+              matchedResults.push({
+                transactionId: transaction.id,
+                transactionType: transaction.type,
+                apartmentName: transaction.apartment_name,
+                complexId: bestMatch.complex.id,
+                complexName: bestMatch.complex.name,
+                score: Math.round(bestMatch.score),
+                legalDong: transaction.legal_dong,
+                jibun: transaction.jibun,
+                batch: batchCount
+              });
+            }
+          }
+
+        } catch (error) {
+          console.error(`거래 ${transaction.id} 매칭 실패:`, error);
+          errors.push(`거래 ${transaction.id} 처리 중 오류`);
+        }
+      }
+
+      console.log(`배치 ${batchCount} 완료: ${matchedResults.filter(r => r.batch === batchCount).length}건 매칭됨`);
+
+      // 작은 휴식 (API 부하 방지)
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     // 4. 매칭된 거래들의 단지별 통계
@@ -209,17 +231,20 @@ export async function POST(request: NextRequest) {
       stat.transactions.push(result);
     }
 
+    console.log(`자동 매칭 완료: 총 ${totalProcessed}건 처리, ${matchedResults.length}건 매칭됨 (${batchCount}개 배치)`);
+
     return NextResponse.json({
       success: true,
       data: {
-        totalProcessed: unmatchedTransactions.length,
+        totalProcessed,
         matched: matchedResults.length,
         failed: errors.length,
-        matchedTransactions: matchedResults,
+        batchesProcessed: batchCount,
+        matchedTransactions: matchedResults.slice(0, 100), // 최대 100개만 반환 (메모리 절약)
         complexStats: Array.from(complexStats.values()),
         errors: errors.slice(0, 10) // 최대 10개 에러만 반환
       },
-      message: `${matchedResults.length}건의 거래가 자동으로 매칭되었습니다.`,
+      message: `${batchCount}개 배치에서 총 ${totalProcessed}건 처리, ${matchedResults.length}건이 자동으로 매칭되었습니다.`,
       timestamp: new Date().toISOString()
     });
 
