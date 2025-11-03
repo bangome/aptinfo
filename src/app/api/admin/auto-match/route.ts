@@ -1,14 +1,13 @@
 /**
  * 자동 매칭 API
- * 지번 범위 포함 여부와 읍면동 일치를 기준으로 거래를 자동으로 단지와 매칭
+ * 거래 위치(읍면동+번지)가 단지 주소에 포함되는지 확인하여 자동 매칭
  *
  * 매칭 우선순위:
- * 1. 거래 지번이 단지 지번 범위 안에 포함 + 읍면동 일치 = 100점 (확정 매칭)
- *    - 예: 거래 "123-25" ∈ 단지 "123-1~123-50" + 같은 읍면동
- * 2. 지번 범위 포함 + 읍면동 유사 = 95점 (매우 높은 확률)
- * 3. 범위 밖인 경우 점수 계산:
- *    - 읍면동 완전 일치: 40점
- *    - 번지수 본번+부번 일치: 50점
+ * 1. 단지 주소에 "읍면동 번지" 패턴 포함 = 100점 (확정 매칭)
+ *    - 예: 거래 "숭의동 462" → 단지 주소 "서울시 용산구 숭의동 462-1~462-50"
+ * 2. 위치 패턴 미포함 시 기존 점수 계산:
+ *    - 읍면동 일치: 40점
+ *    - 번지 유사도: 50점 (본번+부번 일치)
  *    - 단지명 유사도: 10점
  */
 
@@ -17,68 +16,17 @@ import { createClient } from '@/lib/supabase/server';
 import { normalizeError, logError } from '@/lib/error-handling';
 
 /**
- * 지번 파싱 (본번-부번 추출)
+ * 거래 위치(읍면동+번지)가 단지 주소에 포함되는지 확인
+ * 예: "숭의동 462"가 "서울시 용산구 숭의동 462-1~462-50"에 포함되는지
  */
-interface ParsedJibun {
-  bonbun: number;
-  bubun: number;
-}
+function isLocationInAddress(legalDong: string, jibun: string, address: string): boolean {
+  if (!legalDong || !jibun || !address) return false;
 
-function parseJibun(jibun: string): ParsedJibun | null {
-  if (!jibun) return null;
+  // 읍면동과 번지를 조합한 위치 패턴
+  const locationPattern = `${legalDong} ${jibun}`;
 
-  const nums = jibun.match(/\d+/g);
-  if (!nums || nums.length === 0) return null;
-
-  return {
-    bonbun: parseInt(nums[0]),
-    bubun: nums[1] ? parseInt(nums[1]) : 0
-  };
-}
-
-/**
- * 거래 지번이 단지 지번 범위 안에 포함되는지 확인
- * 예: 거래 "123-25"가 단지 "123-1~123-50" 범위 안에 있는지
- */
-function isJibunInRange(transactionJibun: string, complexJibunOrAddress: string): boolean {
-  if (!transactionJibun || !complexJibunOrAddress) return false;
-
-  const txJibun = parseJibun(transactionJibun);
-  if (!txJibun) return false;
-
-  // 범위 패턴 찾기: "123~125" 또는 "123-1~123-50"
-  const rangeMatch = complexJibunOrAddress.match(/(\d+(?:-\d+)?)\s*~\s*(\d+(?:-\d+)?)/);
-
-  if (rangeMatch) {
-    // 범위가 있는 경우
-    const startJibun = parseJibun(rangeMatch[1]);
-    const endJibun = parseJibun(rangeMatch[2]);
-
-    if (!startJibun || !endJibun) return false;
-
-    // 본번이 범위 안에 있는지 확인
-    if (txJibun.bonbun < startJibun.bonbun || txJibun.bonbun > endJibun.bonbun) {
-      return false;
-    }
-
-    // 본번이 범위의 경계인 경우, 부번도 확인
-    if (txJibun.bonbun === startJibun.bonbun && txJibun.bubun < startJibun.bubun) {
-      return false;
-    }
-    if (txJibun.bonbun === endJibun.bonbun && txJibun.bubun > endJibun.bubun) {
-      return false;
-    }
-
-    return true;
-  } else {
-    // 범위가 없는 경우, 단일 지번과 비교
-    const complexJibun = parseJibun(complexJibunOrAddress);
-    if (!complexJibun) return false;
-
-    // 본번+부번 정확히 일치
-    return txJibun.bonbun === complexJibun.bonbun &&
-           txJibun.bubun === complexJibun.bubun;
-  }
+  // 주소에 해당 패턴이 포함되는지 확인
+  return address.includes(locationPattern);
 }
 
 /**
@@ -227,38 +175,24 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // 3-2. 각 단지에 대해 읍면동+번지 기준으로 유사도 계산
+          // 3-2. 각 단지에 대해 위치 패턴 일치 여부 확인
           const scoredComplexes = candidateComplexes.map(complex => {
             let score = 0;
-            let isInRange = false;
 
-            // ✨ 우선 순위 1: 거래 지번이 단지 지번 범위 안에 포함되는지 확인
-            const complexJibunStr = complex.jibun || complex.address || '';
-            if (isJibunInRange(transaction.jibun, complexJibunStr)) {
-              isInRange = true;
-              // 읍면동도 일치하면 100% 확정
-              if (complex.legal_dong === transaction.legal_dong) {
-                return {
-                  complex,
-                  score: 100,
-                  isInRange: true,
-                  matchType: 'range_perfect'
-                };
-              }
-              // 지번 범위 안에 있지만 읍면동이 약간 다른 경우 (매우 높은 확률)
-              else if (complex.legal_dong?.includes(transaction.legal_dong) ||
-                       transaction.legal_dong?.includes(complex.legal_dong || '')) {
-                return {
-                  complex,
-                  score: 95,
-                  isInRange: true,
-                  matchType: 'range_high'
-                };
-              }
+            // ✨ 우선 순위 1: "읍면동 번지" 패턴이 단지 주소에 포함되는지 확인
+            const complexAddress = complex.address || complex.jibun || '';
+            if (isLocationInAddress(transaction.legal_dong, transaction.jibun, complexAddress)) {
+              // 위치 패턴이 주소에 포함되면 100% 확정 매칭
+              return {
+                complex,
+                score: 100,
+                matchType: 'location_pattern_match',
+                locationPattern: `${transaction.legal_dong} ${transaction.jibun}`
+              };
             }
 
-            // 범위 안에 없으면 기존 점수 계산 로직 사용
-            // 읍면동 일치도 (40점) - 가장 기본적인 위치 정보
+            // 위치 패턴이 없으면 기존 점수 계산 로직 사용
+            // 읍면동 일치도 (40점)
             if (complex.legal_dong === transaction.legal_dong) {
               score += 40; // 완전 일치
             } else if (complex.legal_dong?.includes(transaction.legal_dong)) {
@@ -267,14 +201,14 @@ export async function POST(request: NextRequest) {
               score += 15; // 역방향 부분 일치
             }
 
-            // 번지수 일치도 (50점) - 핵심 매칭 기준
+            // 번지수 일치도 (50점)
             const jibunScore = calculateJibunSimilarity(
               transaction.jibun,
               complex.jibun || complex.address?.match(/\d+-?\d*/)?.[0] || ''
             );
             score += (jibunScore / 100) * 50;
 
-            // 단지명 유사도 (10점) - 보조 검증용
+            // 단지명 유사도 (10점)
             const nameScore = calculateNameSimilarity(
               transaction.apartment_name,
               complex.name
@@ -284,10 +218,9 @@ export async function POST(request: NextRequest) {
             return {
               complex,
               score,
-              isInRange: false,
               matchType: 'similarity',
-              jibunScore, // 디버깅용
-              nameScore   // 디버깅용
+              jibunScore,
+              nameScore
             };
           });
 
