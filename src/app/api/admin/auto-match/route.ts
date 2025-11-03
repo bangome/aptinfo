@@ -134,6 +134,7 @@ export async function POST(request: NextRequest) {
     let totalProcessed = 0;
     let batchCount = 0;
     const processedTransactionIds = new Set<string>(); // 이미 처리 시도한 거래 ID 추적
+    const failedLocationKeys = new Set<string>(); // 매칭 실패한 위치 키 (apartment_name+legal_dong+jibun)
 
     console.log(`자동 매칭 시작 (배치 크기: ${batchSize}, 최대 배치: ${maxBatches})`);
 
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
       batchCount++;
 
       // 1. 미매칭 매매 거래 조회 (일관된 순서로 처리하기 위해 created_at + id 정렬)
+      // LIMIT을 크게 설정하여 더 많은 거래를 한 번에 조회
       const { data: unmatchedTrades } = await supabase
         .from('apartment_trade_transactions')
         .select('*')
@@ -151,7 +153,7 @@ export async function POST(request: NextRequest) {
         .not('jibun', 'is', null)
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })  // ID로 2차 정렬 (안정적인 순서 보장)
-        .limit(batchSize / 2);
+        .limit(batchSize * 2);  // 더 많은 거래 조회 (200 → 400)
 
       // 2. 미매칭 전월세 거래 조회 (일관된 순서로 처리하기 위해 created_at + id 정렬)
       const { data: unmatchedRents } = await supabase
@@ -163,16 +165,19 @@ export async function POST(request: NextRequest) {
         .not('jibun', 'is', null)
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })  // ID로 2차 정렬 (안정적인 순서 보장)
-        .limit(batchSize / 2);
+        .limit(batchSize * 2);  // 더 많은 거래 조회 (200 → 400)
 
       let unmatchedTransactions = [
         ...(unmatchedTrades || []).map(t => ({ ...t, type: 'trade' })),
         ...(unmatchedRents || []).map(r => ({ ...r, type: 'rent' }))
       ];
 
-      // 이미 처리 시도한 거래 제외
+      // 이미 처리 시도한 거래 또는 매칭 실패한 위치 제외
       const beforeFilterCount = unmatchedTransactions.length;
-      unmatchedTransactions = unmatchedTransactions.filter(t => !processedTransactionIds.has(t.id));
+      unmatchedTransactions = unmatchedTransactions.filter(t => {
+        const locationKey = `${t.apartment_name}|${t.legal_dong}|${t.jibun}`;
+        return !processedTransactionIds.has(t.id) && !failedLocationKeys.has(locationKey);
+      });
 
       if (beforeFilterCount > unmatchedTransactions.length) {
         console.log(`배치 ${batchCount}: ${beforeFilterCount - unmatchedTransactions.length}건은 이미 처리 시도함, ${unmatchedTransactions.length}건 처리 예정`);
@@ -224,6 +229,9 @@ export async function POST(request: NextRequest) {
 
           if (!candidateComplexes || candidateComplexes.length === 0) {
             batchNoCandidates++;
+            // 후보가 없는 위치도 실패로 기록
+            const locationKey = `${transaction.apartment_name}|${transaction.legal_dong}|${transaction.jibun}`;
+            failedLocationKeys.add(locationKey);
             if (isFirstInBatch) {
               console.log(`배치 ${batchCount} 첫 거래: 후보 단지 없음 (region_code: ${transaction.region_code})`);
             }
@@ -352,6 +360,9 @@ export async function POST(request: NextRequest) {
           } else {
             // 임계값 미만 - 매칭 실패
             batchLowScore++;
+            // 매칭 실패한 위치 키 추가 (같은 위치는 다시 시도하지 않음)
+            const locationKey = `${transaction.apartment_name}|${transaction.legal_dong}|${transaction.jibun}`;
+            failedLocationKeys.add(locationKey);
             if (isFirstInBatch) {
               console.log(`배치 ${batchCount} 첫 거래 매칭 실패: 점수 ${bestMatch.score}점 < 임계값 ${threshold}점`);
             }
