@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
               : 'apartment_rent_transactions';
 
             // 동일한 위치(아파트명+지역코드+법정동+번지)의 모든 미매칭 거래를 한 번에 매칭
-            const { error: updateError, count } = await supabase
+            const { data: updatedData, error: updateError, count } = await supabase
               .from(updateTable)
               .update({ complex_id: bestMatch.complex.id })
               .is('complex_id', null) // 미매칭 거래만
@@ -303,7 +303,25 @@ export async function POST(request: NextRequest) {
 
             if (updateError) {
               errors.push(`거래 ${transaction.id} 업데이트 실패: ${updateError.message}`);
+              if (isFirstInBatch) {
+                console.error(`배치 ${batchCount} 첫 거래 업데이트 실패:`, updateError);
+              }
+            } else if (count === 0) {
+              // 업데이트 성공했지만 영향받은 행이 0개
+              if (isFirstInBatch) {
+                console.warn(`배치 ${batchCount} 첫 거래 업데이트 0건:`, {
+                  apartment_name: transaction.apartment_name,
+                  region_code: transaction.region_code,
+                  legal_dong: transaction.legal_dong,
+                  jibun: transaction.jibun,
+                  complex_id: bestMatch.complex.id
+                });
+              }
+              errors.push(`거래 ${transaction.id} 업데이트 0건 (조건 불일치)`);
             } else {
+              if (isFirstInBatch) {
+                console.log(`배치 ${batchCount} 첫 거래 업데이트 성공: ${count}건 매칭됨`);
+              }
               const matchedCount = count || 1;
               matchedResults.push({
                 transactionId: transaction.id,
