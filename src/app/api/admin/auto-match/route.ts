@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
     while (batchCount < maxBatches) {
       batchCount++;
 
-      // 1. 미매칭 매매 거래 조회
+      // 1. 미매칭 매매 거래 조회 (일관된 순서로 처리하기 위해 created_at 정렬)
       const { data: unmatchedTrades } = await supabase
         .from('apartment_trade_transactions')
         .select('*')
@@ -135,9 +135,10 @@ export async function POST(request: NextRequest) {
         .not('apartment_name', 'is', null)
         .not('legal_dong', 'is', null)
         .not('jibun', 'is', null)
+        .order('created_at', { ascending: true })
         .limit(batchSize / 2);
 
-      // 2. 미매칭 전월세 거래 조회
+      // 2. 미매칭 전월세 거래 조회 (일관된 순서로 처리하기 위해 created_at 정렬)
       const { data: unmatchedRents } = await supabase
         .from('apartment_rent_transactions')
         .select('*')
@@ -145,6 +146,7 @@ export async function POST(request: NextRequest) {
         .not('apartment_name', 'is', null)
         .not('legal_dong', 'is', null)
         .not('jibun', 'is', null)
+        .order('created_at', { ascending: true })
         .limit(batchSize / 2);
 
       const unmatchedTransactions = [
@@ -161,9 +163,16 @@ export async function POST(request: NextRequest) {
       console.log(`배치 ${batchCount}: ${unmatchedTransactions.length}건 처리 중...`);
       totalProcessed += unmatchedTransactions.length;
 
+      let batchMatchAttempts = 0;
+      let batchSuccessfulMatches = 0;
+      let batchNoCandidates = 0;
+      let batchLowScore = 0;
+
       // 3. 각 거래에 대해 매칭 시도
       for (const transaction of unmatchedTransactions) {
         try {
+          batchMatchAttempts++;
+
           // 3-1. 같은 읍면동의 단지 조회
           const { data: candidateComplexes } = await supabase
             .from('apartment_complexes')
@@ -172,6 +181,7 @@ export async function POST(request: NextRequest) {
             .limit(50);
 
           if (!candidateComplexes || candidateComplexes.length === 0) {
+            batchNoCandidates++;
             continue;
           }
 
@@ -230,6 +240,7 @@ export async function POST(request: NextRequest) {
 
           // 3-4. 임계값 이상이면 매칭
           if (bestMatch && bestMatch.score >= threshold) {
+            batchSuccessfulMatches++;
             const updateTable = transaction.type === 'trade'
               ? 'apartment_trade_transactions'
               : 'apartment_rent_transactions';
@@ -262,6 +273,9 @@ export async function POST(request: NextRequest) {
                 batchMatchedCount: matchedCount // 같은 조건으로 매칭된 거래 수
               });
             }
+          } else {
+            // 임계값 미만
+            batchLowScore++;
           }
 
         } catch (error) {
@@ -270,7 +284,15 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      console.log(`배치 ${batchCount} 완료: ${matchedResults.filter(r => r.batch === batchCount).length}건 매칭됨`);
+      const batchMatched = matchedResults.filter(r => r.batch === batchCount).length;
+      console.log(`배치 ${batchCount} 완료:`, {
+        처리시도: batchMatchAttempts,
+        매칭성공: batchSuccessfulMatches,
+        후보없음: batchNoCandidates,
+        점수미달: batchLowScore,
+        실제매칭건수: batchMatched,
+        매칭률: `${batchMatchAttempts > 0 ? ((batchSuccessfulMatches / batchMatchAttempts) * 100).toFixed(1) : 0}%`
+      });
 
       // 작은 휴식 (API 부하 방지)
       await new Promise(resolve => setTimeout(resolve, 100));
