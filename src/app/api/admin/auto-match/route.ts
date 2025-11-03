@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
     const errors: string[] = [];
     let totalProcessed = 0;
     let batchCount = 0;
+    const processedTransactionIds = new Set<string>(); // 이미 처리 시도한 거래 ID 추적
 
     console.log(`자동 매칭 시작 (배치 크기: ${batchSize}, 최대 배치: ${maxBatches})`);
 
@@ -164,10 +165,18 @@ export async function POST(request: NextRequest) {
         .order('id', { ascending: true })  // ID로 2차 정렬 (안정적인 순서 보장)
         .limit(batchSize / 2);
 
-      const unmatchedTransactions = [
+      let unmatchedTransactions = [
         ...(unmatchedTrades || []).map(t => ({ ...t, type: 'trade' })),
         ...(unmatchedRents || []).map(r => ({ ...r, type: 'rent' }))
       ];
+
+      // 이미 처리 시도한 거래 제외
+      const beforeFilterCount = unmatchedTransactions.length;
+      unmatchedTransactions = unmatchedTransactions.filter(t => !processedTransactionIds.has(t.id));
+
+      if (beforeFilterCount > unmatchedTransactions.length) {
+        console.log(`배치 ${batchCount}: ${beforeFilterCount - unmatchedTransactions.length}건은 이미 처리 시도함, ${unmatchedTransactions.length}건 처리 예정`);
+      }
 
       // 미매칭 거래가 없으면 종료
       if (unmatchedTransactions.length === 0) {
@@ -200,6 +209,9 @@ export async function POST(request: NextRequest) {
         try {
           batchMatchAttempts++;
           const isFirstInBatch = batchMatchAttempts === 1;
+
+          // 처리 시도한 거래로 기록
+          processedTransactionIds.add(transaction.id);
 
           // 3-1. 같은 지역코드(시군구)의 모든 단지 조회
           // 위치 패턴(읍면동+번지)이 주소에 포함되는지 확인하기 위해 넓게 검색
@@ -337,8 +349,11 @@ export async function POST(request: NextRequest) {
               });
             }
           } else {
-            // 임계값 미만
+            // 임계값 미만 - 매칭 실패
             batchLowScore++;
+            if (isFirstInBatch) {
+              console.log(`배치 ${batchCount} 첫 거래 매칭 실패: 점수 ${bestMatch.score}점 < 임계값 ${threshold}점`);
+            }
           }
 
         } catch (error) {
@@ -376,12 +391,13 @@ export async function POST(request: NextRequest) {
       stat.transactions.push(result);
     }
 
-    console.log(`자동 매칭 완료: 총 ${totalProcessed}건 처리, ${matchedResults.length}건 매칭됨 (${batchCount}개 배치)`);
+    console.log(`자동 매칭 완료: 총 ${totalProcessed}건 조회, ${processedTransactionIds.size}건 처리 시도, ${matchedResults.length}건 매칭됨 (${batchCount}개 배치)`);
 
     return NextResponse.json({
       success: true,
       data: {
         totalProcessed,
+        totalAttempted: processedTransactionIds.size,  // 실제 처리 시도한 거래 수
         matched: matchedResults.length,
         failed: errors.length,
         batchesProcessed: batchCount,
@@ -389,7 +405,7 @@ export async function POST(request: NextRequest) {
         complexStats: Array.from(complexStats.values()),
         errors: errors.slice(0, 10) // 최대 10개 에러만 반환
       },
-      message: `${batchCount}개 배치에서 총 ${totalProcessed}건 처리, ${matchedResults.length}건이 자동으로 매칭되었습니다.`,
+      message: `${batchCount}개 배치에서 총 ${processedTransactionIds.size}건 처리 시도, ${matchedResults.length}건이 자동으로 매칭되었습니다.`,
       timestamp: new Date().toISOString()
     });
 
