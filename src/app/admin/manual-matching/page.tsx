@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Link2, MapPin, Calendar, Home, DollarSign, Loader2, Check, X } from 'lucide-react';
+import { Search, Link2, MapPin, Calendar, Home, DollarSign, Loader2, Check } from 'lucide-react';
 
 interface Transaction {
   id: string;
@@ -283,6 +283,7 @@ export default function ManualMatchingPage() {
     }
   };
 
+  /* TODO: 마이그레이션 적용 후 활성화
   // 매칭 실패 표시
   const handleMarkFailed = async (transaction: Transaction) => {
     try {
@@ -322,6 +323,7 @@ export default function ManualMatchingPage() {
       });
     }
   };
+  */
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -495,6 +497,7 @@ export default function ManualMatchingPage() {
                           <Link2 className="h-4 w-4 mr-2" />
                           매칭
                         </Button>
+                        {/* TODO: 마이그레이션 적용 후 활성화
                         <Button
                           onClick={() => handleMarkFailed(transaction)}
                           variant="ghost"
@@ -504,6 +507,7 @@ export default function ManualMatchingPage() {
                           <X className="h-4 w-4 mr-2" />
                           매칭 실패
                         </Button>
+                        */}
                       </div>
                     </div>
                   </CardContent>
