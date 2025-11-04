@@ -7,7 +7,6 @@ import { SearchBar } from '@/components/SearchBar';
 import { ApartmentCard } from '@/components/ApartmentCard';
 import { Building2, MapPin, TrendingUp, Shield, Star, Clock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { popularAreas } from '@/data/dummy-apartments';
 import { realApartmentService } from '@/services/realApartmentService';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -16,30 +15,55 @@ import { Apartment } from '@/types/apartment';
 import { formatPrice } from '@/lib/apartment-utils';
 import { convertToApartments } from '@/lib/apartment-conversion';
 
+interface PopularArea {
+  id: string;
+  name: string;
+  count: number;
+  averagePrice: number;
+  image: string;
+}
+
 export default function Home() {
   const router = useRouter();
   const [recentApartments, setRecentApartments] = useState<Apartment[]>([]);
+  const [popularAreas, setPopularAreas] = useState<PopularArea[]>([]);
+  const [isLoadingAreas, setIsLoadingAreas] = useState(true);
+  const [isLoadingRecent, setIsLoadingRecent] = useState(true);
 
-  // Load recent apartments using real estate API service
+  // Load popular areas
+  useEffect(() => {
+    const loadPopularAreas = async () => {
+      try {
+        setIsLoadingAreas(true);
+        const areas = await realApartmentService.getPopularAreas(6);
+        setPopularAreas(areas);
+      } catch (error) {
+        console.error('Failed to load popular areas:', error);
+        // Fallback to empty array
+        setPopularAreas([]);
+      } finally {
+        setIsLoadingAreas(false);
+      }
+    };
+
+    loadPopularAreas();
+  }, []);
+
+  // Load recent apartments
   useEffect(() => {
     const loadRecentApartments = async () => {
-      // Use dummy data directly for now to fix the display issue
-      const { dummyApartments } = await import('@/data/dummy-apartments');
-      console.log('Loading dummy apartments:', dummyApartments.slice(0, 3));
-      setRecentApartments(dummyApartments.slice(0, 3));
-      
-      // TODO: Re-enable real API call once DB issues are resolved
-      /*
       try {
+        setIsLoadingRecent(true);
         const recentData = await realApartmentService.getRecentDeals(3);
         const convertedApartments = convertToApartments(recentData);
         setRecentApartments(convertedApartments);
       } catch (error) {
         console.error('Failed to load recent apartments:', error);
-        const { dummyApartments } = await import('@/data/dummy-apartments');
-        setRecentApartments(dummyApartments.slice(0, 3));
+        // Fallback to empty array
+        setRecentApartments([]);
+      } finally {
+        setIsLoadingRecent(false);
       }
-      */
     };
 
     loadRecentApartments();
@@ -52,7 +76,25 @@ export default function Home() {
   };
 
   const handleAreaClick = (areaName: string) => {
-    router.push(`/search?region=${encodeURIComponent(areaName)}`);
+    // sido 필터를 사용하여 검색
+    router.push(`/search?sido=${encodeURIComponent(areaName)}`);
+  };
+
+  // 지역명 약칭 매핑
+  const getRegionShortName = (fullName: string): string => {
+    const shortNames: Record<string, string> = {
+      '경상남도': '경남',
+      '경상북도': '경북',
+      '전라남도': '전남',
+      '전라북도': '전북',
+      '전북특별자치도': '전북',
+      '충청남도': '충남',
+      '충청북도': '충북',
+      '강원특별자치도': '강원',
+      '제주특별자치도': '제주',
+      '세종특별자치시': '세종',
+    };
+    return shortNames[fullName] || fullName.substring(0, 2);
   };
 
 
@@ -109,38 +151,57 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4">
-            {popularAreas.map((area) => (
-              <Card
-                key={area.id}
-                className="cursor-pointer hover:shadow-md transition-all duration-200 group"
-                onClick={() => handleAreaClick(area.name)}
-              >
-                <CardContent className="p-4 text-center space-y-3">
-                  <div className="relative h-16 w-16 mx-auto overflow-hidden rounded-lg">
-                    <Image
-                      src={area.image}
-                      alt={area.name}
-                      fill
-                      sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
-                      className="object-cover group-hover:scale-110 transition-transform duration-200"
-                    />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-body1 text-foreground">
-                      {area.name}
-                    </h3>
-                    <p className="text-body2 text-muted-foreground">
-                      {area.count}개 단지
-                    </p>
-                    <p className="text-caption font-medium text-primary">
-                      평균 {formatPrice(area.averagePrice)}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {isLoadingAreas ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Card key={index} className="animate-pulse">
+                  <CardContent className="p-4 text-center space-y-3">
+                    <div className="h-16 w-16 mx-auto bg-muted rounded-lg" />
+                    <div className="space-y-2">
+                      <div className="h-4 bg-muted rounded w-3/4 mx-auto" />
+                      <div className="h-3 bg-muted rounded w-1/2 mx-auto" />
+                      <div className="h-3 bg-muted rounded w-2/3 mx-auto" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : popularAreas.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4">
+              {popularAreas.map((area) => (
+                <Card
+                  key={area.id}
+                  className="cursor-pointer hover:shadow-md transition-all duration-200 group"
+                  onClick={() => handleAreaClick(area.name)}
+                >
+                  <CardContent className="p-4 text-center space-y-3">
+                    <div className="h-16 w-16 mx-auto rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center group-hover:from-primary/30 group-hover:to-primary/20 transition-all duration-200">
+                      <span className="text-2xl font-bold text-primary">
+                        {getRegionShortName(area.name)}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-body1 text-foreground">
+                        {area.name}
+                      </h3>
+                      <p className="text-body2 text-muted-foreground">
+                        {area.count.toLocaleString()}개 단지
+                      </p>
+                      {area.averagePrice > 0 && (
+                        <p className="text-caption font-medium text-primary">
+                          평균 {formatPrice(area.averagePrice)}
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">인기 지역 정보를 불러올 수 없습니다.</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -161,18 +222,39 @@ export default function Home() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {recentApartments
-              .filter((apt, index, arr) => arr.findIndex(a => a.id === apt.id) === index)
-              .map((apartment, index) => (
-              <ApartmentCard
-                key={`${apartment.id}-${index}`}
-                apartment={apartment}
-                onBookmark={(id) => console.log('Bookmark:', id)}
-                onCompare={(id) => console.log('Compare:', id)}
-              />
-            ))}
-          </div>
+          {isLoadingRecent ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Card key={index} className="animate-pulse">
+                  <CardContent className="p-6 space-y-4">
+                    <div className="h-6 bg-muted rounded w-3/4" />
+                    <div className="h-4 bg-muted rounded w-1/2" />
+                    <div className="space-y-2">
+                      <div className="h-3 bg-muted rounded" />
+                      <div className="h-3 bg-muted rounded w-5/6" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : recentApartments.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {recentApartments
+                .filter((apt, index, arr) => arr.findIndex(a => a.id === apt.id) === index)
+                .map((apartment, index) => (
+                <ApartmentCard
+                  key={`${apartment.id}-${index}`}
+                  apartment={apartment}
+                  onBookmark={(id) => console.log('Bookmark:', id)}
+                  onCompare={(id) => console.log('Compare:', id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">최신 아파트 정보를 불러올 수 없습니다.</p>
+            </div>
+          )}
         </div>
       </section>
 

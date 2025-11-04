@@ -37,8 +37,8 @@ function SearchPageContent() {
   const [filters, setFilters] = useState<SearchFilters>({
     query: searchParams?.get('q') || '',
     region: searchParams?.get('region') || '',
-    sido: '',
-    sigungu: '',
+    sido: searchParams?.get('sido') || '',
+    sigungu: searchParams?.get('sigungu') || '',
     buildYearRange: [2000, 2025],
     priceRange: [10000000, 10000000000],
     areaRange: [40, 200],
@@ -74,8 +74,18 @@ function SearchPageContent() {
    * Data Flow Step 4: State change triggers re-render with new results
    */
   const handleSearch = async (query: string) => {
-    const updatedFilters = { ...filters, query };
+    // 클라이언트 필터도 기본값으로 리셋 (인피니티 스크롤 활성화)
+    setUnitsRange([0, 3000]);
+    setParkingRange([0, 5000]);
+    setExclusiveAreaRange([40, 200]);
+    setTempUnitsRange([0, 3000]);
+    setTempParkingRange([0, 5000]);
+    setTempExclusiveAreaRange([40, 200]);
+
+    const updatedFilters = { ...filters, query, page: 1 };
     setFilters(updatedFilters);
+    setCurrentPage(1);
+    setApartments([]); // 기존 결과 초기화
     await performSearch(updatedFilters);
   };
 
@@ -83,6 +93,7 @@ function SearchPageContent() {
     const updatedFilters = { ...filters, [key]: value, page: 1 }; // Reset to page 1 when filters change
     setFilters(updatedFilters);
     setCurrentPage(1);
+    setApartments([]); // 기존 결과 초기화
     performSearch(updatedFilters);
   };
 
@@ -92,7 +103,7 @@ function SearchPageContent() {
    */
   const performSearch = async (searchFilters: SearchFilters, isLoadMore = false) => {
     try {
-      console.log('performSearch 호출됨:', searchFilters);
+      console.log('🔍 performSearch 호출됨:', { searchFilters, isLoadMore });
       if (isLoadMore) {
         setIsLoadingMore(true);
       } else {
@@ -103,21 +114,39 @@ function SearchPageContent() {
       // Call real estate API service
       const response: SearchResponse = await realApartmentService.search(searchFilters.query, searchFilters);
 
+      console.log('✅ API 응답:', {
+        apartmentCount: response.apartments.length,
+        totalCount: response.totalCount,
+        hasMore: response.hasMore,
+        currentPage: response.currentPage
+      });
+
       // Convert IntegratedApartmentData to Apartment type using utility
       const convertedApartments = convertToApartments(response.apartments);
 
       // Update state with results
       if (isLoadMore) {
-        setApartments(prev => [...prev, ...convertedApartments]);
+        setApartments(prev => {
+          const updated = [...prev, ...convertedApartments];
+          console.log('📝 아파트 목록 업데이트 (추가):', { 기존: prev.length, 추가: convertedApartments.length, 총: updated.length });
+          return updated;
+        });
       } else {
+        console.log('📝 아파트 목록 업데이트 (새로고침):', { 개수: convertedApartments.length });
         setApartments(convertedApartments);
       }
       setTotalCount(response.totalCount);
       setHasMore(response.hasMore);
       setCurrentPage(response.currentPage);
+
+      console.log('✅ 상태 업데이트 완료:', {
+        totalCount: response.totalCount,
+        hasMore: response.hasMore,
+        currentPage: response.currentPage
+      });
     } catch (err) {
       setError('아파트 검색 중 오류가 발생했습니다. 다시 시도해주세요.');
-      console.error('Real estate API search error:', err);
+      console.error('❌ Real estate API search error:', err);
     } finally {
       if (isLoadMore) {
         setIsLoadingMore(false);
@@ -127,8 +156,22 @@ function SearchPageContent() {
     }
   };
 
-  // Load initial results on component mount
+  // Load initial results on component mount and handle URL parameters
   useEffect(() => {
+    // URL 파라미터에서 sido, sigungu 읽어서 상태 설정
+    const urlSido = searchParams?.get('sido') || '';
+    const urlSigungu = searchParams?.get('sigungu') || '';
+
+    if (urlSido) {
+      console.log('📍 URL에서 시도 파라미터 감지:', urlSido);
+      setSelectedSido(urlSido);
+    }
+
+    if (urlSigungu) {
+      console.log('📍 URL에서 시군구 파라미터 감지:', urlSigungu);
+      setSelectedSigugun(urlSigungu);
+    }
+
     performSearch(filters);
   }, []); // Only run on mount - performSearch uses current filters state
 
@@ -138,21 +181,20 @@ function SearchPageContent() {
     const updatedFilters = { ...filters, sortBy: newSortBy, page: 1 };
     setFilters(updatedFilters);
     setCurrentPage(1);
+    setApartments([]); // 기존 결과 초기화
     performSearch(updatedFilters);
   };
 
-  // 클라이언트 필터가 활성화되어 있는지 확인 (세대수, 주차, 면적만)
-  const hasActiveClientFilters = useMemo(() => {
-    return !!(unitsRange[0] !== 0 || unitsRange[1] !== 3000 ||
-              parkingRange[0] !== 0 || parkingRange[1] !== 5000 ||
-              exclusiveAreaRange[0] !== 40 || exclusiveAreaRange[1] !== 200);
-  }, [unitsRange, parkingRange, exclusiveAreaRange]);
+  // 클라이언트 필터 비활성화 - 모든 필터를 서버에서 처리
+  const hasActiveClientFilters = false;
 
   // Load more results for infinite scroll (서버 페이지네이션)
   const loadMoreResults = useCallback(() => {
     // 클라이언트 필터가 활성화되어 있으면 서버 페이지네이션 중단
     if (hasActiveClientFilters) return;
     if (!hasMore || isLoadingMore || isLoading) return;
+
+    console.log('🔄 loadMoreResults 호출:', { currentPage, hasMore, isLoading, isLoadingMore });
 
     const nextPage = currentPage + 1;
     const updatedFilters = { ...filters, page: nextPage };
@@ -163,9 +205,12 @@ function SearchPageContent() {
 
   // Intersection Observer for infinite scroll (서버 페이지네이션)
   useEffect(() => {
+    console.log('🔍 IntersectionObserver 설정:', { hasActiveClientFilters, hasMore, isLoading, isLoadingMore });
+
     // 클라이언트 필터가 활성화되어 있으면 서버 인피니티 스크롤 비활성화
     if (hasActiveClientFilters) {
       if (observerRef.current) {
+        console.log('❌ 클라이언트 필터 활성화로 Observer disconnect');
         observerRef.current.disconnect();
       }
       return;
@@ -177,7 +222,14 @@ function SearchPageContent() {
 
     observerRef.current = new IntersectionObserver(
       (entries) => {
+        console.log('👁️ Intersection 감지:', {
+          isIntersecting: entries[0].isIntersecting,
+          hasMore,
+          isLoadingMore,
+          isLoading
+        });
         if (entries[0].isIntersecting && hasMore && !isLoadingMore && !isLoading) {
+          console.log('✅ loadMoreResults 호출 조건 만족');
           loadMoreResults();
         }
       },
@@ -185,6 +237,7 @@ function SearchPageContent() {
     );
 
     if (loadMoreRef.current) {
+      console.log('✅ Observer 연결됨');
       observerRef.current.observe(loadMoreRef.current);
     }
 
@@ -195,84 +248,61 @@ function SearchPageContent() {
     };
   }, [loadMoreResults, hasMore, isLoadingMore, isLoading, hasActiveClientFilters]);
 
-  // 클라이언트 사이드 필터링 (세대수, 주차, 면적만 - 시도/시군구는 서버에서 처리)
-  const filteredApartments = useMemo(() => {
-    console.log('🔍 클라이언트 필터링 시작:', {
-      총아파트수: apartments.length,
-      unitsRange,
-      parkingRange,
-      exclusiveAreaRange
-    });
+  // 클라이언트 필터링 제거 - 서버에서 모든 필터 처리
+  const filteredApartments = apartments;
 
-    const filtered = apartments.filter(apartment => {
-      // 시도/시군구는 서버에서 이미 필터링됨 - 제거!
+  // 서버 페이지네이션만 사용 - 프로그레시브 렌더링 제거
+  const displayedApartments = filteredApartments;
 
-      // 세대수 필터
-      if (apartment.units) {
-        if (apartment.units < unitsRange[0] || apartment.units > unitsRange[1]) {
-          return false;
-        }
-      }
-
-      // 주차대수 필터
-      const parkingCount = typeof apartment.parking === 'number'
-        ? apartment.parking
-        : apartment.parking?.total || 0;
-      if (parkingCount < parkingRange[0] || parkingCount > parkingRange[1]) {
-        return false;
-      }
-
-      // 전용면적 필터
-      if (apartment.area?.exclusive) {
-        if (apartment.area.exclusive < exclusiveAreaRange[0] ||
-            apartment.area.exclusive > exclusiveAreaRange[1]) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    console.log('✅ 클라이언트 필터링 완료:', {
-      필터전: apartments.length,
-      필터후: filtered.length
-    });
-
-    return filtered;
-  }, [apartments, unitsRange, parkingRange, exclusiveAreaRange]);
-
-  // 프로그레시브 렌더링: 클라이언트 필터가 있을 때만 적용, 서버 페이지네이션일 때는 모든 결과 표시
-  const displayedApartments = useMemo(() => {
-    if (hasActiveClientFilters) {
-      // 클라이언트 필터 활성화: 프로그레시브 렌더링
-      return filteredApartments.slice(0, displayedCount);
-    } else {
-      // 서버 페이지네이션: 모든 로드된 아파트 표시
-      return filteredApartments;
-    }
-  }, [filteredApartments, displayedCount, hasActiveClientFilters]);
-
-  // 더 표시할 결과가 있는지 확인
-  const hasMoreFiltered = hasActiveClientFilters && displayedCount < filteredApartments.length;
+  // 클라이언트 필터링 제거로 더 이상 필요 없음
+  const hasMoreFiltered = false;
 
   // 시도 변경 시 시군구 초기화 및 서버 필터 업데이트
   const handleSidoChange = useCallback((sido: string) => {
     setSelectedSido(sido);
     setSelectedSigugun(''); // 시도 변경 시 시군구 초기화
 
+    // 클라이언트 필터도 기본값으로 리셋 (인피니티 스크롤 활성화)
+    setUnitsRange([0, 3000]);
+    setParkingRange([0, 5000]);
+    setExclusiveAreaRange([40, 200]);
+    setTempUnitsRange([0, 3000]);
+    setTempParkingRange([0, 5000]);
+    setTempExclusiveAreaRange([40, 200]);
+
     // 서버 사이드 필터 업데이트
     const updatedFilters = { ...filters, sido, sigungu: '', page: 1 };
     setFilters(updatedFilters);
     setCurrentPage(1);
+    setApartments([]); // 기존 결과 초기화
     performSearch(updatedFilters);
   }, [filters]);
 
-  // 클라이언트 필터 변경 시에만 표시 카운트 리셋 (서버 페이지네이션 시에는 리셋 안함)
+  // 세대수, 주차, 면적 필터 변경 시 서버 재검색 (디바운싱됨)
   useEffect(() => {
-    // 클라이언트 필터가 활성화되었을 때만 리셋
-    if (hasActiveClientFilters) {
-      setDisplayedCount(BATCH_SIZE);
+    // 기본값이 아닐 때만 서버 재검색
+    const isDefaultUnits = unitsRange[0] === 0 && unitsRange[1] === 3000;
+    const isDefaultParking = parkingRange[0] === 0 && parkingRange[1] === 5000;
+    const isDefaultArea = exclusiveAreaRange[0] === 40 && exclusiveAreaRange[1] === 200;
+
+    // 초기 마운트 시에는 실행하지 않음
+    if (isDefaultUnits && isDefaultParking && isDefaultArea) {
+      return;
     }
+
+    console.log('🔄 필터 변경 감지 - 서버 재검색:', { unitsRange, parkingRange, exclusiveAreaRange });
+
+    const updatedFilters = {
+      ...filters,
+      unitsRange,
+      parkingRange,
+      exclusiveAreaRange,
+      page: 1
+    };
+    setFilters(updatedFilters);
+    setCurrentPage(1);
+    setApartments([]);
+    performSearch(updatedFilters);
   }, [unitsRange, parkingRange, exclusiveAreaRange]);
 
   // 더 많은 필터링된 결과 로드
@@ -375,10 +405,20 @@ function SearchPageContent() {
             onValueChange={(value) => {
               const newSigugun = value === 'all' ? '' : value;
               setSelectedSigugun(newSigugun);
+
+              // 클라이언트 필터도 기본값으로 리셋 (인피니티 스크롤 활성화)
+              setUnitsRange([0, 3000]);
+              setParkingRange([0, 5000]);
+              setExclusiveAreaRange([40, 200]);
+              setTempUnitsRange([0, 3000]);
+              setTempParkingRange([0, 5000]);
+              setTempExclusiveAreaRange([40, 200]);
+
               // 서버 사이드 필터 업데이트
               const updatedFilters = { ...filters, sigungu: newSigugun, page: 1 };
               setFilters(updatedFilters);
               setCurrentPage(1);
+              setApartments([]); // 기존 결과 초기화
               performSearch(updatedFilters);
             }}
             disabled={!selectedSido}

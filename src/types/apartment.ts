@@ -56,9 +56,14 @@ export interface Apartment {
 export interface SearchFilters {
   query?: string;
   region?: string;
+  sido?: string;        // 시도 (서버 사이드 필터)
+  sigungu?: string;     // 시군구 (서버 사이드 필터)
   buildYearRange?: [number, number];
   priceRange?: [number, number];
   areaRange?: [number, number];
+  unitsRange?: [number, number];        // 세대수 범위 (서버 사이드 필터)
+  parkingRange?: [number, number];      // 주차대수 범위 (서버 사이드 필터)
+  exclusiveAreaRange?: [number, number]; // 전용면적 범위 (서버 사이드 필터)
   facilities?: string[];
   limit?: number;
   page?: number;

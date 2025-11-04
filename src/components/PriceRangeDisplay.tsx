@@ -166,13 +166,13 @@ export function PriceRangeDisplay({
           </div>
         )}
         
-        {summary.rentMonthly && (
+        {summary.rentMonthlyWithDeposit && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-1">
-            <span 
+            <span
               className="text-body2 text-muted-foreground break-words"
-              aria-label={`월세 실거래가 범위: ${formatPriceRangeText(summary.rentMonthly.min, summary.rentMonthly.max, summary.rentMonthly.count)}`}
+              aria-label={`월세 실거래가 범위: ${summary.rentMonthlyWithDeposit.text}`}
             >
-              월세 {formatPriceRangeText(summary.rentMonthly.min, summary.rentMonthly.max, summary.rentMonthly.count)}
+              월세 {summary.rentMonthlyWithDeposit.text}
             </span>
           </div>
         )}
@@ -265,15 +265,15 @@ export function PriceRangeDisplay({
           </div>
         )}
 
-        {summary.rentMonthly && (
-          <div 
+        {summary.rentMonthlyWithDeposit && (
+          <div
             className="flex flex-col p-3 bg-muted/30 rounded-lg focus-within:ring-2 focus-within:ring-muted/40"
             role="group"
             aria-labelledby="rent-monthly-label"
           >
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span 
+                <span
                   id="rent-monthly-label"
                   className="text-body1 font-medium text-muted-foreground"
                 >
@@ -281,14 +281,14 @@ export function PriceRangeDisplay({
                 </span>
                 <TrendIcon trend="stable" />
               </div>
-              <div 
+              <div
                 className="text-h6 font-semibold text-foreground break-words"
-                aria-label={`월세 가격 범위: ${formatPriceRangeText(summary.rentMonthly.min, summary.rentMonthly.max, summary.rentMonthly.count)}`}
+                aria-label={`월세 가격 범위: ${summary.rentMonthlyWithDeposit.text}`}
               >
-                {formatPriceRangeText(summary.rentMonthly.min, summary.rentMonthly.max, summary.rentMonthly.count)}
+                {summary.rentMonthlyWithDeposit.text}
               </div>
               <div className="text-body2 text-muted-foreground mt-1">
-                평균 {formatPriceInEok(summary.rentMonthly.average)}
+                평균 {formatPriceInEok(summary.rentMonthlyWithDeposit.depositAverage)}/{formatPriceInEok(summary.rentMonthlyWithDeposit.monthlyAverage)}
               </div>
             </div>
           </div>

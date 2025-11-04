@@ -277,15 +277,18 @@ class SupabaseApartmentService {
   // 편의시설 파싱 (단일 문자열용)
   private parseFacilities(facilityStr?: string | null): string[] {
     if (!facilityStr) return [];
-    
+
+    // 먼저 전화번호 패턴 제거
+    facilityStr = this.removePhoneNumbers(facilityStr);
+
     // convenient_facility처럼 카테고리가 있는 형태인지 확인
-    const hasCategories = facilityStr.includes('관공서(') || facilityStr.includes('병원(') || 
+    const hasCategories = facilityStr.includes('관공서(') || facilityStr.includes('병원(') ||
                          facilityStr.includes('공원(') || facilityStr.includes('대형상가(');
-    
+
     const allFacilities: string[] = [];
-    
+
     if (hasCategories) {
-      // 카테고리가 있는 경우 전체를 파싱
+      // 카테고리가 있는 경우 전체를 파싱 (이미 removePhoneNumbers 적용됨)
       const parsedFacilities = this.parseConvenientFacility(facilityStr);
       allFacilities.push(...parsedFacilities);
     } else {
@@ -298,18 +301,38 @@ class SupabaseApartmentService {
     const cleanedFacilities = allFacilities.filter(facility => {
       return !facility.match(/\(\s*\)$/);
     });
-    
+
     // 스마트 중복 제거: 유사한 이름도 제거
     const deduplicatedFacilities = this.removeSimilarDuplicates(cleanedFacilities);
-    return deduplicatedFacilities;
+
+    // 전화번호 패턴만 있는 항목 제거 (예: "043-201-7912")
+    const finalFacilities = deduplicatedFacilities.filter(facility => !this.isPhoneNumber(facility));
+
+    return finalFacilities;
+  }
+
+  // 전화번호 패턴 제거 헬퍼 함수
+  private removePhoneNumbers(text: string): string {
+    // 전화번호 패턴: 02-123-4567, 031-1234-5678, 043-201-7912 등
+    // \d{2,4}-\d{3,4}-\d{4} 형태
+    return text.replace(/\(\d{2,4}-\d{3,4}-\d{4}\)/g, '').trim();
+  }
+
+  // 전화번호 패턴인지 확인 (숫자-숫자-숫자 형태)
+  private isPhoneNumber(text: string): boolean {
+    // 숫자-숫자-숫자 형태만 있는지 확인
+    return /^\d{2,4}-\d{3,4}-\d{4}$/.test(text.trim());
   }
 
   // 유사한 중복 시설명 제거 및 괄호 정리
   private removeSimilarDuplicates(facilities: string[]): string[] {
     const result: string[] = [];
-    
+
     for (let facility of facilities) {
-      // 먼저 모든 괄호 정리
+      // 먼저 전화번호 패턴 제거
+      facility = this.removePhoneNumbers(facility);
+
+      // 그 다음 모든 괄호 정리
       facility = facility
         .replace(/[)\]}>]+$/, '')  // 끝의 모든 닫는 괄호들 제거
         .replace(/^[(\[{<]+/, '')  // 시작의 모든 여는 괄호들 제거
@@ -349,7 +372,10 @@ class SupabaseApartmentService {
   // 편의시설 개별 파싱 (관공서, 병원, 공원, 대형상가 처리)
   private parseConvenientFacility(facilityStr: string): string[] {
     const facilities: string[] = [];
-    
+
+    // 먼저 전체 문자열에서 전화번호 패턴 제거
+    facilityStr = this.removePhoneNumbers(facilityStr);
+
     // 1. 관공서 파싱
     const govMatch = facilityStr.match(/관공서\(([^)]+)\)/);
     if (govMatch) {
@@ -417,23 +443,30 @@ class SupabaseApartmentService {
     // 6. 패턴에 맞지 않는 경우
     if (facilities.length === 0) {
       // 카테고리 패턴이 있는데 파싱에 실패한 경우 빈 배열 반환
-      if (facilityStr.includes('관공서(') || facilityStr.includes('병원(') || 
+      if (facilityStr.includes('관공서(') || facilityStr.includes('병원(') ||
           facilityStr.includes('공원(') || facilityStr.includes('대형상가(')) {
         return [];
       }
-      // 일반 텍스트인 경우만 원본 반환
+      // 일반 텍스트인 경우만 원본 반환 (전화번호 제외)
+      if (this.isPhoneNumber(facilityStr)) {
+        return [];
+      }
       return [facilityStr];
     }
-    
-    return facilities;
+
+    // 전화번호 패턴만 있는 항목 제거
+    return facilities.filter(facility => !this.isPhoneNumber(facility));
   }
 
   // 교육시설 파싱 (특별 처리)
   private parseEducationFacilities(educationStr?: string | null): string[] {
     if (!educationStr) return [];
-    
+
+    // 먼저 전체 문자열에서 전화번호 패턴 제거
+    educationStr = this.removePhoneNumbers(educationStr);
+
     const facilities: string[] = [];
-    
+
     // "초등학교(a, b) 중학교(c, d) 고등학교(e, f)" 형태 파싱
     const patterns = [
       { type: '초등학교', suffix: '초', regex: /초등학교\(([^)]+)\)/g },
@@ -466,8 +499,9 @@ class SupabaseApartmentService {
     const cleanedFacilities = facilities.filter(facility => {
       return !facility.match(/\(\s*\)$/);
     });
-    
-    return cleanedFacilities;
+
+    // 전화번호 패턴만 있는 항목 제거
+    return cleanedFacilities.filter(facility => !this.isPhoneNumber(facility));
   }
 
   // 메인 검색 함수
@@ -532,11 +566,17 @@ class SupabaseApartmentService {
       const { data, error, count } = await queryBuilder;
 
       if (error) {
-        console.error('Supabase 검색 오류:', error);
-        console.error('에러 메시지:', error.message);
-        console.error('에러 코드:', error.code);
-        console.error('에러 상세:', JSON.stringify(error, null, 2));
-        throw new Error(`데이터베이스 검색 중 오류가 발생했습니다: ${error.message || error.code || '알 수 없는 오류'}`);
+        console.error('Supabase 검색 오류 발생');
+        console.error('에러 객체 타입:', typeof error);
+        console.error('에러 객체:', error);
+        console.error('에러 메시지:', error?.message);
+        console.error('에러 코드:', error?.code);
+        console.error('에러 상세:', error?.details);
+        console.error('에러 힌트:', error?.hint);
+        console.error('전체 에러 JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
+        const errorMsg = error?.message || error?.code || error?.details || '알 수 없는 오류';
+        throw new Error(`데이터베이스 검색 중 오류가 발생했습니다: ${errorMsg}`);
       }
 
       // 데이터 변환
@@ -564,8 +604,18 @@ class SupabaseApartmentService {
 
       return result;
     } catch (error) {
-      console.error('Supabase 아파트 검색 중 오류:', error);
-      console.error('catch 블록 에러 상세:', JSON.stringify(error, null, 2));
+      console.error('Supabase 아파트 검색 중 오류 발생 (catch 블록)');
+      console.error('에러 타입:', typeof error);
+      console.error('에러 객체:', error);
+      console.error('에러 instanceof Error:', error instanceof Error);
+
+      if (error instanceof Error) {
+        console.error('Error.message:', error.message);
+        console.error('Error.stack:', error.stack);
+      }
+
+      console.error('전체 에러 JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`아파트 검색 중 오류가 발생했습니다: ${errorMessage}`);
     }
@@ -596,6 +646,35 @@ class SupabaseApartmentService {
       filtered = filtered.filter(apt => {
         const area = apt.area.exclusive;
         if (!area) return true;
+        return area >= minArea && area <= maxArea;
+      });
+    }
+
+    // 세대수 필터링
+    if (filters.unitsRange) {
+      const [minUnits, maxUnits] = filters.unitsRange;
+      filtered = filtered.filter(apt => {
+        const units = apt.units;
+        if (!units) return false; // 세대수 정보 없으면 제외
+        return units >= minUnits && units <= maxUnits;
+      });
+    }
+
+    // 주차대수 필터링
+    if (filters.parkingRange) {
+      const [minParking, maxParking] = filters.parkingRange;
+      filtered = filtered.filter(apt => {
+        const parking = typeof apt.parking === 'number' ? apt.parking : apt.parking?.total || 0;
+        return parking >= minParking && parking <= maxParking;
+      });
+    }
+
+    // 전용면적 필터링 (exclusiveAreaRange)
+    if (filters.exclusiveAreaRange) {
+      const [minArea, maxArea] = filters.exclusiveAreaRange;
+      filtered = filtered.filter(apt => {
+        const area = apt.area.exclusive;
+        if (!area) return false; // 면적 정보 없으면 제외
         return area >= minArea && area <= maxArea;
       });
     }
@@ -694,7 +773,6 @@ class SupabaseApartmentService {
       const { data, error } = await this.supabase
         .from('apartment_complexes')
         .select('*')
-        .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -705,13 +783,101 @@ class SupabaseApartmentService {
 
       const apartments = (data || []).map(apt => this.convertToIntegratedData(apt));
       // 중복 제거
-      return apartments.filter((apt, index, arr) => 
+      return apartments.filter((apt, index, arr) =>
         arr.findIndex(a => a.id === apt.id) === index
       );
     } catch (error) {
       console.error('최근 아파트 조회 실패:', error);
       return [];
     }
+  }
+
+  // 인기 지역 조회 (시도별 아파트 개수 및 평균 거래가)
+  async getPopularAreas(limit: number = 6): Promise<Array<{
+    id: string;
+    name: string;
+    count: number;
+    averagePrice: number;
+    image: string;
+  }>> {
+    try {
+      console.log('🔍 인기 지역 조회 시작...');
+
+      // Supabase의 기본 페이지네이션 제한을 피하기 위해
+      // 시도별로 이미 알고 있는 지역 목록 사용
+      const knownRegions = [
+        '서울특별시', '경기도', '인천광역시',
+        '부산광역시', '대구광역시', '대전광역시', '광주광역시', '울산광역시',
+        '세종특별자치시', '강원특별자치도',
+        '충청북도', '충청남도',
+        '전라북도', '전북특별자치도', '전라남도',
+        '경상북도', '경상남도',
+        '제주특별자치도'
+      ];
+
+      // 각 지역별로 개수 조회
+      const regionCounts = await Promise.all(
+        knownRegions.map(async (sido) => {
+          const { count, error } = await this.supabase
+            .from('apartment_complexes')
+            .select('*', { count: 'exact', head: true })
+            .eq('sido', sido);
+
+          if (error) {
+            console.error(`${sido} 개수 조회 오류:`, error);
+            return { sido, count: 0 };
+          }
+
+          return { sido, count: count || 0 };
+        })
+      );
+
+      console.log('📍 시도별 개수:', regionCounts);
+
+      // 개수가 0이 아닌 지역만 필터링하고 정렬
+      const popularRegions = regionCounts
+        .filter(item => item.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit)
+        .map((item, index) => ({
+          id: `region-${index}`,
+          name: item.sido,
+          count: item.count,
+          averagePrice: 0,
+          image: this.getRegionImage(item.sido)
+        }));
+
+      console.log('✅ 인기 지역 조회 완료:', popularRegions.length, '개');
+      return popularRegions;
+    } catch (error) {
+      console.error('인기 지역 조회 실패:', error);
+      return [];
+    }
+  }
+
+  // 지역 이미지 매핑 헬퍼 함수
+  private getRegionImage(sido: string): string {
+    const regionImages: Record<string, string> = {
+      '서울특별시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Seal_of_Seoul%2C_South_Korea.svg/200px-Seal_of_Seoul%2C_South_Korea.svg.png',
+      '부산광역시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/39/Busan_Metropolitan_City_Logo.svg/200px-Busan_Metropolitan_City_Logo.svg.png',
+      '대구광역시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Daegu_Metropolitan_City_Logo.svg/200px-Daegu_Metropolitan_City_Logo.svg.png',
+      '인천광역시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Incheon_Metropolitan_City_Logo.svg/200px-Incheon_Metropolitan_City_Logo.svg.png',
+      '광주광역시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Gwangju_Metropolitan_City_Logo.svg/200px-Gwangju_Metropolitan_City_Logo.svg.png',
+      '대전광역시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Daejeon_Metropolitan_City_Logo.svg/200px-Daejeon_Metropolitan_City_Logo.svg.png',
+      '울산광역시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Ulsan_Metropolitan_City_Logo.svg/200px-Ulsan_Metropolitan_City_Logo.svg.png',
+      '세종특별자치시': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Sejong_Special_Self-Governing_City_logo.svg/200px-Sejong_Special_Self-Governing_City_logo.svg.png',
+      '경기도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/Gyeonggi-do_Provincial_Office_Logo.svg/200px-Gyeonggi-do_Provincial_Office_Logo.svg.png',
+      '강원특별자치도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Emblem_of_Gangwon_Province.svg/200px-Emblem_of_Gangwon_Province.svg.png',
+      '충청북도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Emblem_of_North_Chungcheong_Province.svg/200px-Emblem_of_North_Chungcheong_Province.svg.png',
+      '충청남도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Emblem_of_South_Chungcheong_Province.svg/200px-Emblem_of_South_Chungcheong_Province.svg.png',
+      '전북특별자치도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Emblem_of_North_Jeolla_Province.svg/200px-Emblem_of_North_Jeolla_Province.svg.png',
+      '전라북도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Emblem_of_North_Jeolla_Province.svg/200px-Emblem_of_North_Jeolla_Province.svg.png',
+      '전라남도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/Emblem_of_South_Jeolla_Province.svg/200px-Emblem_of_South_Jeolla_Province.svg.png',
+      '경상북도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Emblem_of_North_Gyeongsang_Province.svg/200px-Emblem_of_North_Gyeongsang_Province.svg.png',
+      '경상남도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Emblem_of_South_Gyeongsang_Province.svg/200px-Emblem_of_South_Gyeongsang_Province.svg.png',
+      '제주특별자치도': 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Emblem_of_Jeju_Province.svg/200px-Emblem_of_Jeju_Province.svg.png',
+    };
+    return regionImages[sido] || '/placeholder.svg';
   }
 
   // 지역별 아파트 수 조회
@@ -764,4 +930,8 @@ export async function getPopularSupabaseApartments(limit?: number): Promise<Inte
 
 export async function getRecentSupabaseApartments(limit?: number): Promise<IntegratedApartmentData[]> {
   return supabaseApartmentService.getRecentApartments(limit);
+}
+
+export async function getPopularAreas(limit?: number) {
+  return supabaseApartmentService.getPopularAreas(limit);
 }

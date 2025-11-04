@@ -6,15 +6,17 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
-import { 
-  calculateTradePrice, 
-  calculateRentDepositRange, 
+import {
+  calculateTradePrice,
+  calculateRentDepositRange,
   calculateRentMonthlyRange,
+  calculateRentMonthlyWithDepositRange,
   filterRecentTransactions,
   createPriceSummary,
   type PriceRange,
   type TransactionData,
-  type RentTransactionData
+  type RentTransactionData,
+  type RentMonthlyWithDepositRange
 } from '@/lib/price-range-utils';
 
 export interface ApartmentPriceData {
@@ -28,6 +30,7 @@ export interface PriceRangeResult {
   tradeRange: PriceRange | null;
   rentDepositRange: PriceRange | null;
   rentMonthlyRange: PriceRange | null;
+  rentMonthlyWithDeposit: RentMonthlyWithDepositRange | null;
   summary: ReturnType<typeof createPriceSummary>;
   hasData: boolean;
   isRecent: boolean; // 최근 12개월 데이터 여부
@@ -59,12 +62,8 @@ export function useApartmentPriceRange(
         .limit(1000); // 최근 1000건 제한
 
       if (tradeError) {
-        console.error('매매 거래 데이터 조회 오류:', {
-          message: tradeError.message,
-          details: tradeError.details,
-          hint: tradeError.hint,
-          code: tradeError.code
-        });
+        console.error('매매 거래 데이터 조회 오류:', tradeError);
+        throw new Error(`매매 거래 조회 실패: ${tradeError.message || JSON.stringify(tradeError)}`);
       }
 
       // 전월세 거래 데이터 조회
@@ -76,12 +75,8 @@ export function useApartmentPriceRange(
         .limit(1000); // 최근 1000건 제한
 
       if (rentError) {
-        console.error('전월세 거래 데이터 조회 오류:', {
-          message: rentError.message,
-          details: rentError.details,
-          hint: rentError.hint,
-          code: rentError.code
-        });
+        console.error('전월세 거래 데이터 조회 오류:', rentError);
+        throw new Error(`전월세 거래 조회 실패: ${rentError.message || JSON.stringify(rentError)}`);
       }
 
       // 데이터 타입 변환 및 필터링
@@ -108,14 +103,16 @@ export function useApartmentPriceRange(
       const tradeRange = calculateTradePrice(recentTradeTransactions);
       const rentDepositRange = calculateRentDepositRange(recentRentTransactions);
       const rentMonthlyRange = calculateRentMonthlyRange(recentRentTransactions);
+      const rentMonthlyWithDeposit = calculateRentMonthlyWithDepositRange(recentRentTransactions);
 
       // 요약 정보 생성
-      const summary = createPriceSummary(tradeRange, rentDepositRange, rentMonthlyRange);
+      const summary = createPriceSummary(tradeRange, rentDepositRange, rentMonthlyRange, rentMonthlyWithDeposit);
 
       return {
         tradeRange,
         rentDepositRange,
         rentMonthlyRange,
+        rentMonthlyWithDeposit,
         summary,
         hasData: !!(tradeRange || rentDepositRange || rentMonthlyRange),
         isRecent: recentMonths <= 12
@@ -196,12 +193,14 @@ export function useMultipleApartmentPriceRanges(
           const tradeRange = calculateTradePrice(recentTradeTransactions);
           const rentDepositRange = calculateRentDepositRange(recentRentTransactions);
           const rentMonthlyRange = calculateRentMonthlyRange(recentRentTransactions);
-          const summary = createPriceSummary(tradeRange, rentDepositRange, rentMonthlyRange);
+          const rentMonthlyWithDeposit = calculateRentMonthlyWithDepositRange(recentRentTransactions);
+          const summary = createPriceSummary(tradeRange, rentDepositRange, rentMonthlyRange, rentMonthlyWithDeposit);
 
           results[apartmentName] = {
             tradeRange,
             rentDepositRange,
             rentMonthlyRange,
+            rentMonthlyWithDeposit,
             summary,
             hasData: !!(tradeRange || rentDepositRange || rentMonthlyRange),
             isRecent: recentMonths <= 12
@@ -212,7 +211,8 @@ export function useMultipleApartmentPriceRanges(
             tradeRange: null,
             rentDepositRange: null,
             rentMonthlyRange: null,
-            summary: createPriceSummary(null, null, null),
+            rentMonthlyWithDeposit: null,
+            summary: createPriceSummary(null, null, null, null),
             hasData: false,
             isRecent: false
           };
@@ -260,6 +260,7 @@ export function useRegionalPriceRange(
 
       if (tradeError) {
         console.error('지역 매매 거래 데이터 조회 오류:', tradeError);
+        throw new Error(`지역 매매 거래 조회 실패: ${tradeError.message || JSON.stringify(tradeError)}`);
       }
 
       // 해당 지역의 모든 전월세 거래 데이터 조회
@@ -272,6 +273,7 @@ export function useRegionalPriceRange(
 
       if (rentError) {
         console.error('지역 전월세 거래 데이터 조회 오류:', rentError);
+        throw new Error(`지역 전월세 거래 조회 실패: ${rentError.message || JSON.stringify(rentError)}`);
       }
 
       // 데이터 변환 및 계산
@@ -296,12 +298,14 @@ export function useRegionalPriceRange(
       const tradeRange = calculateTradePrice(recentTradeTransactions);
       const rentDepositRange = calculateRentDepositRange(recentRentTransactions);
       const rentMonthlyRange = calculateRentMonthlyRange(recentRentTransactions);
-      const summary = createPriceSummary(tradeRange, rentDepositRange, rentMonthlyRange);
+      const rentMonthlyWithDeposit = calculateRentMonthlyWithDepositRange(recentRentTransactions);
+      const summary = createPriceSummary(tradeRange, rentDepositRange, rentMonthlyRange, rentMonthlyWithDeposit);
 
       return {
         tradeRange,
         rentDepositRange,
         rentMonthlyRange,
+        rentMonthlyWithDeposit,
         summary,
         hasData: !!(tradeRange || rentDepositRange || rentMonthlyRange),
         isRecent: recentMonths <= 12

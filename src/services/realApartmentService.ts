@@ -77,6 +77,16 @@ class RealApartmentService {
     }
   }
 
+  // 인기 지역 조회 - Supabase DB 사용
+  async getPopularAreas(limit: number = 6) {
+    try {
+      return await supabaseApartmentService.getPopularAreas(limit);
+    } catch (error) {
+      console.error('Supabase DB 인기 지역 조회 실패:', error);
+      return [];
+    }
+  }
+
   // 캐시 관련 메서드 제거됨 - DB 직접 접근으로 변경
 }
 

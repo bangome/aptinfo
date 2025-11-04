@@ -72,6 +72,15 @@ export default function ApartmentDetailPage() {
   const [isLoadingYearlyFee, setIsLoadingYearlyFee] = useState(false);
   const [showDetailedFees, setShowDetailedFees] = useState(false);
 
+  // Helper functions for phone number removal
+  const removePhoneNumbers = (text: string): string => {
+    return text.replace(/\(\d{2,4}-\d{3,4}-\d{4}\)/g, '').trim();
+  };
+
+  const isPhoneNumber = (text: string): boolean => {
+    return /^\d{2,4}-\d{3,4}-\d{4}$/.test(text.trim());
+  };
+
   // Load apartment data using React Query
   const {
     data: apartmentData,
@@ -1101,15 +1110,21 @@ export default function ApartmentDetailPage() {
                 if (getApiData().convenient_facility) {
                   const convenientText = getApiData().convenient_facility;
                   console.log('🔍 Convenient facility text:', convenientText);
-                  
+
                   // 관공서 파싱 - 정확한 괄호 매칭
                   const govMatches = convenientText.match(/관공서\(([^)]+)\)/g);
                   if (govMatches) {
                     govMatches.forEach(match => {
                       const govContent = match.match(/관공서\(([^)]+)\)/);
                       if (govContent) {
-                        const govFacilities = govContent[1].split(/[,;]/).map((f: string) => f.trim()).filter((f: string) => {
-                          return f.length > 0 && (f.includes('센터') || f.includes('청') || f.includes('소') || f.includes('구청') || f.includes('시청'));
+                        const govFacilities = govContent[1].split(/[,;]/).map((f: string) => {
+                          f = removePhoneNumbers(f.trim());
+                          return f;
+                        }).filter((f: string) => {
+                          // 전화번호 패턴 제외, 유효한 시설명만
+                          return f.length > 0 && !isPhoneNumber(f) &&
+                                 (f.includes('센터') || f.includes('청') || f.includes('소') ||
+                                  f.includes('구청') || f.includes('시청') || f.includes('관공서'));
                         });
                         console.log('🏛️ Found valid government facilities:', govFacilities);
                         categories.관공서.push(...govFacilities);
@@ -1123,7 +1138,10 @@ export default function ApartmentDetailPage() {
                     hospitalMatches.forEach(match => {
                       const hospitalContent = match.match(/병원\(([^)]*)\)/);
                       if (hospitalContent && hospitalContent[1].trim()) {
-                        const hospitals = hospitalContent[1].split(/[,;]/).map((f: string) => f.trim()).filter((f: string) => f.length > 0);
+                        const hospitals = hospitalContent[1].split(/[,;]/).map((f: string) => {
+                          f = removePhoneNumbers(f.trim());
+                          return f;
+                        }).filter((f: string) => f.length > 0 && !isPhoneNumber(f));
                         console.log('🏥 Found hospitals:', hospitals);
                         categories.병원.push(...hospitals);
                       }
@@ -1136,8 +1154,13 @@ export default function ApartmentDetailPage() {
                     parkMatches.forEach(match => {
                       const parkContent = match.match(/공원\(([^)]+)\)/);
                       if (parkContent) {
-                        const parks = parkContent[1].split(/[,;]/).map((f: string) => f.trim()).filter((f: string) => {
-                          return f.length > 0 && (f.includes('공원') || f.includes('산') || f.includes('명소') || f.includes('광장') || f.length >= 4);
+                        const parks = parkContent[1].split(/[,;]/).map((f: string) => {
+                          f = removePhoneNumbers(f.trim());
+                          return f;
+                        }).filter((f: string) => {
+                          return f.length > 0 && !isPhoneNumber(f) &&
+                                 (f.includes('공원') || f.includes('산') || f.includes('명소') ||
+                                  f.includes('광장') || f.length >= 4);
                         });
                         console.log('🌳 Found valid parks:', parks);
                         categories.공원.push(...parks);
@@ -1145,14 +1168,17 @@ export default function ApartmentDetailPage() {
                     });
                   }
                   
-                  // 기타 시설들 처리 (대형상가, 백화점 등)
-                  const otherMatches = convenientText.match(/(?:대형상가|백화점|쇼핑몰|상가)\(([^)]+)\)/g);
-                  if (otherMatches) {
-                    otherMatches.forEach(match => {
-                      const otherContent = match.match(/(?:대형상가|백화점|쇼핑몰|상가)\(([^)]+)\)/);
-                      if (otherContent) {
-                        const facilities = otherContent[1].split(/[,;]/).map((f: string) => f.trim()).filter((f: string) => f.length > 0);
-                        console.log('🏪 Found other facilities:', facilities);
+                  // 기타 시설들 처리 (대형상가, 백화점 등) - 병원, 백화점, 대형상가는 '기타'가 아님!
+                  const shoppingMatches = convenientText.match(/(?:대형상가|백화점|쇼핑몰)\(([^)]+)\)/g);
+                  if (shoppingMatches) {
+                    shoppingMatches.forEach(match => {
+                      const shoppingContent = match.match(/(?:대형상가|백화점|쇼핑몰)\(([^)]+)\)/);
+                      if (shoppingContent) {
+                        const facilities = shoppingContent[1].split(/[,;]/).map((f: string) => {
+                          f = removePhoneNumbers(f.trim());
+                          return f;
+                        }).filter((f: string) => f.length > 0 && !isPhoneNumber(f));
+                        console.log('🏪 Found shopping facilities:', facilities);
                         categories.기타.push(...facilities);
                       }
                     });
@@ -1212,7 +1238,10 @@ export default function ApartmentDetailPage() {
                       matches.forEach(match => {
                         const schoolsMatch = match.match(/\(([^)]+)\)/);
                         if (schoolsMatch) {
-                          const schools = schoolsMatch[1].split(/[,;]/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+                          const schools = schoolsMatch[1].split(/[,;]/).map((s: string) => {
+                            s = removePhoneNumbers(s.trim());
+                            return s;
+                          }).filter((s: string) => s.length > 0 && !isPhoneNumber(s));
                           console.log(`  ${schoolType} schools:`, schools);
                           schools.forEach(school => {
                             // education_facility에서도 동일한 필터링 적용
@@ -1220,11 +1249,11 @@ export default function ApartmentDetailPage() {
                               console.log(`  ❌ Filtered out from education_facility (too short):`, school);
                               return;
                             }
-                            
+
                             const hasValidSuffix = school.endsWith('초') || school.endsWith('중') || school.endsWith('고');
-                            const hasSchoolKeyword = school.includes('대학교') || 
+                            const hasSchoolKeyword = school.includes('대학교') ||
                                                    (school.includes('학교') && school.length >= 4);
-                            
+
                             if (hasValidSuffix || hasSchoolKeyword) {
                               console.log(`  ✅ Adding valid school from education_facility:`, school);
                               categories.학교.push(school);
